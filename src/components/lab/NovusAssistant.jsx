@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, MessageCircle, Eye, Plus, Paperclip, Image as ImageIcon } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { Core } from '@/api/integrationsClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTheme } from '../ThemeContext';
@@ -99,7 +99,7 @@ export default function NovusAssistant({ project, currentStage, isOpen, onToggle
         dataContext = `Current stage data: ${JSON.stringify(stageData).substring(0, 500)}...`;
       }
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await Core.InvokeLLM({
         prompt: `You are NOVUS, a calm, analytical, and supportive AI research collaborator helping with rare disease research. You have deep knowledge of the research workflow.
 
 Context: ${stageContext}

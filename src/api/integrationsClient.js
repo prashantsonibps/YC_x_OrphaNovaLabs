@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // Keep Firebase initialization local to avoid circular import timing with main.jsx.
 const firebaseConfig = {
@@ -51,8 +52,21 @@ export const Core = {
     return { success: true }; // Placeholder
   },
   UploadFile: async (params) => {
-    console.log('Core.UploadFile() called with params:', params, ' - implement custom logic');
-    return { file_url: 'https://placeholder.com/file.jpg' }; // Placeholder
+    const { file } = params || {};
+    if (!file) throw new Error('No file provided to UploadFile.');
+    try {
+      const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+      const storage = getStorage(app);
+      const timestamp = Date.now();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storageRef = ref(storage, `uploads/${timestamp}_${safeName}`);
+      await uploadBytes(storageRef, file);
+      const file_url = await getDownloadURL(storageRef);
+      return { file_url };
+    } catch (error) {
+      console.error('Core.UploadFile() error:', error);
+      throw new Error('File upload failed: ' + (error.message || 'Unknown error'));
+    }
   },
   GenerateImage: async (params) => {
     console.log('Core.GenerateImage() called with params:', params, ' - implement custom logic');

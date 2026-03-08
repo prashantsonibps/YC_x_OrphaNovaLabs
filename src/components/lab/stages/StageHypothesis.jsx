@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { useTheme } from '../../ThemeContext';
+import { Core } from '@/api/integrationsClient';
 import NotesPanel from '../NotesPanel';
 
 export default function StageHypothesis({ project, onComplete }) {
@@ -58,7 +59,7 @@ export default function StageHypothesis({ project, onComplete }) {
         `${r.disease} - ${r.gene || 'unknown gene'} - ${r.drug || 'unknown drug'}: ${r.relationship_type}`
       ).join('\n');
 
-      const result = await base44.integrations.Core.InvokeLLM({
+      const result = await Core.InvokeLLM({
         prompt: `Generate 4-6 novel research hypotheses for ${project.disease_name} based on these validated relationships:
 
 ${relContext}

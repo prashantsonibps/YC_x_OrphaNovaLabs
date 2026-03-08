@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTheme } from '../../ThemeContext';
+import { Core } from '@/api/integrationsClient';
 import KnowledgeGraphScientific from '../visualizations/KnowledgeGraphScientific';
 
 export default function StageEvidence({ project, onComplete }) {
@@ -70,7 +71,7 @@ export default function StageEvidence({ project, onComplete }) {
 
       const litContext = selectedLit.map(l => `${l.title}: ${l.abstract}`).join('\n\n');
 
-      const result = await base44.integrations.Core.InvokeLLM({
+      const result = await Core.InvokeLLM({
         prompt: `Extract disease-gene-drug relationships from these papers about ${project.disease_name}:
 
 ${litContext}

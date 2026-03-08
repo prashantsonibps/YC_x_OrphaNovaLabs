@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTheme } from '../../ThemeContext';
-
+import { Core } from '@/api/integrationsClient';
 
 export default function StageLiterature({ project, onComplete }) {
   const { theme } = useTheme();
@@ -61,7 +61,7 @@ export default function StageLiterature({ project, onComplete }) {
         throw new Error('Research context not analyzed. Please complete Stage 0 first.');
       }
 
-      const searchResults = await base44.integrations.Core.InvokeLLM({
+      const searchResults = await Core.InvokeLLM({
         prompt: `Generate a list of relevant scientific papers for this rare disease research:
 
 Disease: ${project.disease_name}

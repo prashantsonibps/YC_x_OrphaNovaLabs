@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Send, X, Paperclip, Image as ImageIcon } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { Core } from '@/api/integrationsClient';
+import { Note } from '@/api/entities';
 import { useTheme } from '../ThemeContext';
 
 /**
@@ -21,7 +22,7 @@ export default function AddNotesInput({ projectId, stageId, onNoteSaved }) {
     
     for (const file of files) {
       try {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await Core.UploadFile({ file });
         setAttachments(prev => [...prev, { 
           name: file.name, 
           url: file_url,
@@ -39,7 +40,7 @@ export default function AddNotesInput({ projectId, stageId, onNoteSaved }) {
 
     try {
       // Save as a note entity (we'll create this)
-      await base44.entities.Note?.create({
+      await Note.create({
         project_id: projectId,
         stage_id: stageId,
         content: noteText,

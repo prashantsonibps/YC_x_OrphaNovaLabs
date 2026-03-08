@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, MessageCircle, Eye, Paperclip, Image as ImageIcon, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { Note, Literature, Relation, Hypothesis, Experiment, Review } from '@/api/entities';
-import { base44 } from '@/api/base44Client';
+import { Core } from '@/api/integrationsClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTheme } from '../ThemeContext';
@@ -129,7 +129,7 @@ export default function NovusAssistantEnhanced({
 
     for (const file of files) {
       try {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await Core.UploadFile({ file });
         uploadedAttachments.push({
           name: file.name,
           url: file_url,
@@ -469,7 +469,7 @@ Speak with the authority of a mentor who knows when insight matters most. Be tho
 Respond:`;
         }
 
-        const response = await base44.integrations.Core.InvokeLLM({
+        const response = await Core.InvokeLLM({
           prompt,
           add_context_from_internet: false
         });

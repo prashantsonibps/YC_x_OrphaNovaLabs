@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTheme } from '../ThemeContext';
+import { Core } from '@/api/integrationsClient';
 
 export default function ProfileModal({ user, onClose, onUpdate }) {
   const { theme } = useTheme();
@@ -57,7 +58,7 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
 
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await Core.UploadFile({ file });
       await auth.updateMe({ profile_picture: file_url });
       
       if (onUpdate) {
@@ -119,7 +120,7 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
         // Note: Implement account deletion in backend
         alert('Account deletion functionality - implement backend endpoint');
         // After deletion, logout
-        // base44.auth.logout();
+        // auth.logout();
       } catch (error) {
         alert('Error deleting account: ' + error.message);
       } finally {

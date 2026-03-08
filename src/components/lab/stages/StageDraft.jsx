@@ -10,6 +10,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { useTheme } from '../../ThemeContext';
 import DiseaseImageGallery from '../visualizations/DiseaseImageGallery';
+import { Core } from '@/api/integrationsClient';
 
 const FORMATS = [
   { id: 'arxiv', name: 'arXiv', description: 'Open-access preprint format', enabled: true },
@@ -232,7 +233,7 @@ Each section MUST be publication-ready with full detail. NO brief summaries or o
         requiredFields = ["title", "abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"];
       }
 
-      const result = await base44.integrations.Core.InvokeLLM({
+      const result = await Core.InvokeLLM({
         prompt: promptText,
         response_json_schema: {
           type: "object",
@@ -301,7 +302,7 @@ Each section MUST be publication-ready with full detail. NO brief summaries or o
   const handleAISuggestion = async () => {
     setGeneratingSuggestion(true);
     try {
-      const result = await base44.integrations.Core.InvokeLLM({
+      const result = await Core.InvokeLLM({
         prompt: `Improve this ${currentSectionData?.label} section for a scientific paper about ${project.disease_name}:
 
 Current text: ${content[currentSection] || 'Empty'}

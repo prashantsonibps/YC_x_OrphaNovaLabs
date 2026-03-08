@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { base44 } from '@/api/base44Client';
 import { Notification, NotificationRead } from '@/api/entities';
 import { X, ExternalLink, Youtube } from 'lucide-react';
 import { Button } from '@/components/ui/button';

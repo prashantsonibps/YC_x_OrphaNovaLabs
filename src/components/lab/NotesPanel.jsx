@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Link as LinkIcon, FileText, Image as ImageIcon, Loader2, Check } from 'lucide-react';
 import { Note, StageNote } from '@/api/entities';
-import { base44 } from '@/api/base44Client';
+import { Core } from '@/api/integrationsClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -86,7 +86,7 @@ export default function NotesPanel({ projectId, stageId, onClose }) {
 
     setUploadProgress(0);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await Core.UploadFile({ file });
       setUploadProgress(100);
 
       await StageNote.create({
