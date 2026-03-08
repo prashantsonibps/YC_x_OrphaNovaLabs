@@ -13,9 +13,8 @@ Create `functions/.env.local` from `functions/.env.local.example` and set:
 In GitHub repository settings, add:
 
 - `FIREBASE_SERVICE_ACCOUNT_ORPHANOVALABS`
-- `ANTHROPIC_API_KEY`
 
-## 3) Runtime secret in Firebase (recommended production source)
+## 3) Runtime secret in Firebase (required production source)
 
 Set secret once from local terminal:
 

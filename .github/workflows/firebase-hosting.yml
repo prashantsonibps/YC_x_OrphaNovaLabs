@@ -67,10 +67,6 @@ jobs:
           EOF
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
 
-      - name: Sync Anthropic secret to Firebase
-        run: |
-          printf "%s" "${{ secrets.ANTHROPIC_API_KEY }}" | npx firebase-tools functions:secrets:set ANTHROPIC_API_KEY --project orphanovalabs --data-file=- --force
-
       - name: Deploy Functions and Hosting
         run: |
-          npx firebase-tools deploy --project orphanovalabs --only functions,hosting
+          npx firebase-tools deploy --project orphanovalabs --only functions,hosting --non-interactive
