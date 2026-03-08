@@ -1,6 +1,10 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const Anthropic = require('@anthropic-ai/sdk');
 
+const TAMARIND_BASE = 'https://app.tamarind.bio/api';
+const PUBCHEM_API = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug';
+const UNIPROT_API = 'https://rest.uniprot.org/uniprotkb/search';
+
 const PRIMARY_MODEL = 'claude-sonnet-4-20250514';
 const FAST_MODEL = 'claude-3-5-haiku-20241022';
 const PRIMARY_MODEL_FALLBACKS = [
@@ -145,5 +149,285 @@ exports.invokeLLM = onCall(
       const mapped = mapProviderError(error);
       throw new HttpsError(mapped.code, mapped.message, mapped.details);
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// runExperiment — Tamarind Bio ADMET + Docking with Claude fallback
+// ---------------------------------------------------------------------------
+
+async function lookupSmiles(drugName) {
+  const res = await fetch(
+    `${PUBCHEM_API}/compound/name/${encodeURIComponent(drugName)}/property/CanonicalSMILES,MolecularFormula,MolecularWeight,IUPACName/JSON`
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  const props = data?.PropertyTable?.Properties?.[0];
+  return props || null;
+}
+
+async function lookupProteinSequence(geneName) {
+  const res = await fetch(
+    `${UNIPROT_API}?query=gene_exact:${encodeURIComponent(geneName)}+AND+organism_id:9606&format=json&size=1&fields=accession,gene_names,sequence,protein_name`
+  );
+  if (!res.ok) return null;
+  const data = await res.json();
+  const entry = data?.results?.[0];
+  if (!entry) return null;
+  return {
+    accession: entry.primaryAccession || '',
+    sequence: entry.sequence?.value || '',
+    length: entry.sequence?.length || 0,
+    protein_name: entry.proteinDescription?.recommendedName?.fullName?.value || '',
+  };
+}
+
+async function tamarindSubmit(apiKey, type, settings, jobName) {
+  const res = await fetch(`${TAMARIND_BASE}/submit-job`, {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, settings, jobName }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Tamarind submit failed (${res.status}): ${text}`);
+  return text;
+}
+
+async function tamarindPollUntilDone(apiKey, jobName, maxWaitMs = 180000) {
+  const start = Date.now();
+  const pollInterval = 5000;
+  while (Date.now() - start < maxWaitMs) {
+    const res = await fetch(`${TAMARIND_BASE}/jobs?jobName=${encodeURIComponent(jobName)}`, {
+      headers: { 'x-api-key': apiKey },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const jobs = Array.isArray(data) ? data : (data?.jobs || []);
+      const job = jobs.find(j => j.jobName === jobName || j.name === jobName);
+      if (job) {
+        const status = (job.status || job.state || '').toLowerCase();
+        if (status === 'completed' || status === 'succeeded' || status === 'done') {
+          return { status: 'completed', job };
+        }
+        if (status === 'failed' || status === 'error') {
+          return { status: 'failed', job };
+        }
+      }
+    }
+    await new Promise(r => setTimeout(r, pollInterval));
+  }
+  return { status: 'timeout' };
+}
+
+async function tamarindGetResult(apiKey, jobName) {
+  const res = await fetch(`${TAMARIND_BASE}/result`, {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobName }),
+  });
+  if (!res.ok) return null;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('json')) return res.json();
+  return res.text();
+}
+
+async function claudeAdmetFallback(anthropic, drugName, smiles, molecularFormula, molecularWeight) {
+  const modelCandidates = getModelCandidates(true);
+  const prompt = `You are a computational pharmacology expert. Predict ADMET properties for this compound.
+
+Drug: ${drugName}
+SMILES: ${smiles || 'N/A'}
+Molecular Formula: ${molecularFormula || 'N/A'}
+Molecular Weight: ${molecularWeight || 'N/A'}
+
+Based on the chemical structure and known pharmacological data, predict:
+1. Absorption: oral bioavailability (%), Caco-2 permeability, HIA (human intestinal absorption)
+2. Distribution: plasma protein binding (%), BBB penetration, VDss
+3. Metabolism: CYP450 interactions (1A2, 2C9, 2C19, 2D6, 3A4 — inhibitor/substrate)
+4. Excretion: half-life estimate, clearance route
+5. Toxicity: hERG liability, hepatotoxicity risk, AMES mutagenicity, LD50 class
+6. Overall drug-likeness: Lipinski violations, bioavailability score (0-1)
+
+Return ONLY valid JSON matching this schema:
+${JSON.stringify({
+  type: "object",
+  properties: {
+    absorption: { type: "object", properties: {
+      oral_bioavailability: { type: "string" },
+      caco2_permeability: { type: "string" },
+      hia: { type: "string" },
+      summary: { type: "string" }
+    }},
+    distribution: { type: "object", properties: {
+      ppb: { type: "string" },
+      bbb_penetration: { type: "string" },
+      vdss: { type: "string" },
+      summary: { type: "string" }
+    }},
+    metabolism: { type: "object", properties: {
+      cyp_interactions: { type: "array", items: { type: "object", properties: { enzyme: { type: "string" }, role: { type: "string" } }}},
+      summary: { type: "string" }
+    }},
+    excretion: { type: "object", properties: {
+      half_life: { type: "string" },
+      clearance: { type: "string" },
+      summary: { type: "string" }
+    }},
+    toxicity: { type: "object", properties: {
+      herg_liability: { type: "string" },
+      hepatotoxicity: { type: "string" },
+      ames_mutagenicity: { type: "string" },
+      ld50_class: { type: "string" },
+      overall_risk: { type: "string" },
+      summary: { type: "string" }
+    }},
+    druglikeness: { type: "object", properties: {
+      lipinski_violations: { type: "number" },
+      bioavailability_score: { type: "number" },
+      summary: { type: "string" }
+    }},
+    binding_affinity_estimate: { type: "string" },
+    confidence_note: { type: "string" }
+  }
+})}`;
+
+  for (const model of modelCandidates) {
+    try {
+      const response = await anthropic.messages.create({
+        model,
+        max_tokens: 4096,
+        temperature: 0.15,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const rawText = extractTextContent(response.content);
+      return parseJsonSafe(rawText);
+    } catch (err) {
+      if (isModelNotFoundError(err)) continue;
+      throw err;
+    }
+  }
+  throw new Error('Claude ADMET fallback failed: no model available.');
+}
+
+exports.runExperiment = onCall(
+  {
+    region: 'us-central1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async (request) => {
+    const { drugName, geneName, diseaseName, experimentTitle } = request.data || {};
+
+    if (!drugName && !geneName) {
+      throw new HttpsError('invalid-argument', 'drugName or geneName is required.');
+    }
+
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    const tamarindKey = process.env.TAMARIND_API_KEY;
+    const useTamarind = !!tamarindKey;
+
+    // Step 1: Look up compound data from PubChem
+    let pubchem = null;
+    try {
+      if (drugName && drugName !== 'N/A') {
+        pubchem = await lookupSmiles(drugName);
+      }
+    } catch (err) {
+      console.warn('PubChem lookup failed:', err.message);
+    }
+
+    const smiles = pubchem?.CanonicalSMILES || null;
+    const molecularFormula = pubchem?.MolecularFormula || null;
+    const molecularWeight = pubchem?.MolecularWeight || null;
+    const iupacName = pubchem?.IUPACName || null;
+
+    // Step 2: Look up protein sequence from UniProt
+    let protein = null;
+    try {
+      if (geneName && geneName !== 'N/A') {
+        protein = await lookupProteinSequence(geneName);
+      }
+    } catch (err) {
+      console.warn('UniProt lookup failed:', err.message);
+    }
+
+    // Step 3: Try Tamarind Bio ADMET + Docking
+    let tamarindAdmet = null;
+    let tamarindDocking = null;
+    let source = 'claude_prediction';
+
+    if (useTamarind && smiles) {
+      const ts = Date.now();
+
+      // ADMET job — smilesStrings takes a comma-separated list
+      try {
+        const admetJobName = `orphanova_admet_${ts}`;
+        await tamarindSubmit(tamarindKey, 'admet', { smilesStrings: smiles }, admetJobName);
+        const pollResult = await tamarindPollUntilDone(tamarindKey, admetJobName, 120000);
+        if (pollResult.status === 'completed') {
+          tamarindAdmet = await tamarindGetResult(tamarindKey, admetJobName);
+          source = 'tamarind_bio';
+        }
+      } catch (err) {
+        console.warn('Tamarind ADMET failed:', err.message);
+      }
+
+      // Docking job (Chai-1) — protein sequence + ligands SMILES
+      if (protein?.sequence) {
+        try {
+          const dockJobName = `orphanova_dock_${ts}`;
+          await tamarindSubmit(tamarindKey, 'chai', {
+            inputFormat: 'sequence',
+            sequence: protein.sequence,
+            ligands: smiles,
+            useMSA: false,
+            numSamples: 1,
+            numTrunkSamples: 1,
+          }, dockJobName);
+          const pollResult = await tamarindPollUntilDone(tamarindKey, dockJobName, 180000);
+          if (pollResult.status === 'completed') {
+            tamarindDocking = await tamarindGetResult(tamarindKey, dockJobName);
+          }
+        } catch (err) {
+          console.warn('Tamarind docking failed:', err.message);
+        }
+      }
+    }
+
+    // Step 4: Claude fallback if Tamarind didn't produce ADMET results
+    let admetResults = null;
+    if (tamarindAdmet) {
+      admetResults = tamarindAdmet;
+    } else if (anthropicKey) {
+      try {
+        const anthropic = new Anthropic({ apiKey: anthropicKey });
+        admetResults = await claudeAdmetFallback(
+          anthropic, drugName || 'unknown', smiles, molecularFormula, molecularWeight
+        );
+        source = smiles ? 'claude_with_structure' : 'claude_prediction';
+      } catch (err) {
+        console.error('Claude ADMET fallback error:', err);
+      }
+    }
+
+    return {
+      source,
+      drug: {
+        name: drugName,
+        smiles,
+        molecular_formula: molecularFormula,
+        molecular_weight: molecularWeight,
+        iupac_name: iupacName,
+      },
+      protein: protein ? {
+        name: protein.protein_name,
+        gene: geneName,
+        accession: protein.accession,
+        sequence_length: protein.length,
+      } : null,
+      admet: admetResults,
+      docking: tamarindDocking,
+      experiment_title: experimentTitle || '',
+    };
   }
 );

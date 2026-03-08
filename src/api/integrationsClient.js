@@ -84,4 +84,17 @@ export const Core = {
     console.log('Core.UploadPrivateFile() called with params:', params, ' - implement custom logic');
     return { file_url: 'https://placeholder.com/private_file.jpg' }; // Placeholder
   },
+  RunExperiment: async (params) => {
+    try {
+      const functions = getFunctionsInstance();
+      const callable = httpsCallable(functions, 'runExperiment', { timeout: 540000 });
+      const { data } = await callable(params || {});
+      return data;
+    } catch (error) {
+      const rawMessage = error?.message || '';
+      const code = error?.code || '';
+      console.error('Core.RunExperiment() error:', { code, rawMessage });
+      throw new Error(rawMessage || 'RunExperiment failed');
+    }
+  },
 };
