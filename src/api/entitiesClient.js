@@ -60,9 +60,10 @@ export const entities = {
         }
         return true;
       });
-      // Simple sorting (only for created_date for now)
       if (orderBy === '-created_date') {
         filtered.sort((a, b) => new Date(b.created_date).getTime() - new Date(a.created_date).getTime());
+      } else if (orderBy === '-updated_date') {
+        filtered.sort((a, b) => new Date(b.updated_date || 0).getTime() - new Date(a.updated_date || 0).getTime());
       }
       return filtered.slice(0, limit);
     },

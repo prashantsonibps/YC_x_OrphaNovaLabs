@@ -49,22 +49,14 @@ function AdminDashboardContent() {
 
   const checkAuth = async () => {
     try {
-      const isAuth = await auth.isAuthenticated();
-      if (!isAuth) {
-        auth.redirectToLogin();
-        return;
-      }
-
       const currentUser = await auth.me();
       if (currentUser.role !== 'admin') {
         window.location.href = '/Dashboard';
         return;
       }
-
       setUser(currentUser);
     } catch (error) {
-      console.error('Auth error:', error);
-      auth.redirectToLogin();
+      console.error('Load error:', error);
     } finally {
       setLoading(false);
     }

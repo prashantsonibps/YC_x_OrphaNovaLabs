@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { auth } from '@/api/authClient';
 import { Project } from '@/api/entities';
 import { createPageUrl } from '../utils/navigation';
@@ -62,6 +63,8 @@ const STAGES = [
 
 function LabContent() {
   const { theme } = useTheme();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentProject, setCurrentProject] = useState(null);
@@ -71,9 +74,26 @@ function LabContent() {
   const [novusOpen, setNovusOpen] = useState(false);
   const [novusWidth, setNovusWidth] = useState(384);
 
+  // Run auth + load when we land on Lab or when URL project param changes (projectId from URL passed explicitly to avoid stale closure)
+  const projectIdFromUrl = searchParams.get('project');
   useEffect(() => {
-    checkAuth();
-  }, []);
+    setLoading(true);
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const currentUser = await auth.me();
+        if (cancelled) return;
+        setUser(currentUser);
+        await loadProject(currentUser, projectIdFromUrl);
+      } catch (error) {
+        if (!cancelled) console.error('Load error:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [projectIdFromUrl]);
 
   // Auto-close sidebar after 5 seconds
   useEffect(() => {
@@ -84,42 +104,31 @@ function LabContent() {
     return () => clearTimeout(timer);
   }, []);
 
-  const checkAuth = async () => {
+  const loadProject = async (currentUser, projectIdFromUrl) => {
     try {
-      const isAuth = await auth.isAuthenticated();
-      if (!isAuth) {
-        const returnUrl = window.location.href;
-        auth.redirectToLogin(returnUrl);
-        return;
-      }
-      
-      const currentUser = await auth.me();
-      setUser(currentUser);
-      loadProject(currentUser);
-    } catch (error) {
-      console.error('Auth error:', error);
-      auth.redirectToLogin();
-    }
-  };
-
-  const loadProject = async (currentUser) => {
-    try {
-      // Check URL for project ID
-      const urlParams = new URLSearchParams(window.location.search);
-      const projectId = urlParams.get('project');
+      const projectId = projectIdFromUrl ?? searchParams.get('project');
 
       let project;
       if (projectId) {
-        const projects = await Project.filter({ id: projectId });
+        let projects = await Project.filter({ id: projectId });
         project = projects[0];
+        // Fallback: fetch by id in case filter missed it (e.g. created_by not set yet)
+        if (!project) {
+          project = await Project.get(projectId);
+        }
       } else {
-        // Load most recent active project
-        const projects = await Project.filter(
-          { created_by: currentUser.email, status: 'active' },
-          '-created_date',
+        // Load most recent active project (guest uses created_by 'guest')
+        const createdBy = currentUser?.email ?? 'guest';
+        let projects = await Project.filter(
+          { created_by: createdBy, status: 'active' },
+          '-updated_date',
           1
         );
         project = projects[0];
+        if (!project) {
+          projects = await Project.filter({ status: 'active' }, '-updated_date', 1);
+          project = projects[0];
+        }
       }
 
       if (project) {
@@ -127,7 +136,7 @@ function LabContent() {
         setCurrentStage(project.current_stage || 0);
       } else {
         // Redirect to dashboard if no project found
-        window.location.href = createPageUrl('Dashboard');
+        navigate('/Dashboard');
       }
     } catch (error) {
       console.error('Project load error:', error);

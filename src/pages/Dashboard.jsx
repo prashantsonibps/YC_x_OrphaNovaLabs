@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '../utils/navigation';
 import WelcomeAnimation from '../components/lab/WelcomeAnimation';
 import Header from '../components/shared/Header';
@@ -57,6 +57,7 @@ const STAGE_NAMES = [
 
 function DashboardContent() {
   const { theme } = useTheme();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,16 +72,9 @@ function DashboardContent() {
 
   const checkAuthAndLoadProjects = async () => {
     try {
-      const isAuth = await auth.isAuthenticated();
-      if (!isAuth) {
-        auth.redirectToLogin();
-        return;
-      }
-
       const currentUser = await auth.me();
       setUser(currentUser);
 
-      // Check if first time user
       const isFirstTime = !localStorage.getItem('orphanova-dashboard-visited');
       if (isFirstTime) {
         setShowWelcome(true);
@@ -90,22 +84,20 @@ function DashboardContent() {
         }, 2000);
       }
 
+      const createdBy = currentUser?.email || 'guest';
       const allProjects = await Project.filter(
-        { created_by: currentUser.email },
+        { created_by: createdBy },
         '-updated_date'
       );
 
       setProjects(allProjects);
 
-      // Calculate stats
       const active = allProjects.filter((p) => p.status === 'active').length;
       const completed = allProjects.filter((p) => p.status === 'completed').length;
       const archived = allProjects.filter((p) => p.status === 'archived').length;
       setStats({ active, completed, archived });
-
     } catch (error) {
-      console.error('Auth/Load error:', error);
-      auth.redirectToLogin();
+      console.error('Load error:', error);
     } finally {
       setLoading(false);
     }
@@ -113,6 +105,7 @@ function DashboardContent() {
 
   const createNewProject = async () => {
     try {
+      const currentUser = user || (await auth.me());
       const newProject = await Project.create({
         title: `Research Project ${projects.length + 1}`,
         disease_name: '',
@@ -127,10 +120,11 @@ function DashboardContent() {
           5: 'locked',
           6: 'locked'
         },
-        status: 'active'
+        status: 'active',
+        created_by: currentUser?.email || 'guest'
       });
 
-      window.location.href = createPageUrl('Lab') + `?project=${newProject.id}`;
+      navigate({ pathname: '/Lab', search: `?project=${encodeURIComponent(newProject.id)}` });
     } catch (error) {
       console.error('Create project error:', error);
     }

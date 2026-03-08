@@ -4,7 +4,6 @@ import App from '@/App.jsx'
 import '@/index.css'
 
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -19,7 +18,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const firebase_app = app;
-export const auth_instance = getAuth(app);
 
 // Initialize Analytics only in browser environments
 if (typeof window !== 'undefined') {
