@@ -86,27 +86,22 @@ export default function StageEvidence({ project, onComplete }) {
     }
   }, [timeRemaining, extracting]);
 
+  const enrichWithOpenTargets = (rels) => {
+    for (const r of rels) {
+      if (r.ot_score !== null && r.ot_score !== undefined) continue;
+      fetchOpenTargetsScore(r.disease, r.gene).then(score => {
+        if (score === null) return;
+        Relation.update(r.id, { ot_score: score });
+        setRelations(prev => prev.map(x => x.id === r.id ? { ...x, ot_score: score } : x));
+      });
+    }
+  };
+
   const loadExistingRelations = async () => {
     try {
       const existing = await Relation.filter({ project_id: project.id });
       setRelations(existing);
-
-      const needsScore = existing.filter(r => r.ot_score === null || r.ot_score === undefined);
-      if (needsScore.length > 0) {
-        (async () => {
-          const updated = [...existing];
-          for (let i = 0; i < updated.length; i++) {
-            const r = updated[i];
-            if (r.ot_score !== null && r.ot_score !== undefined) continue;
-            const score = await fetchOpenTargetsScore(r.disease, r.gene);
-            if (score !== null) {
-              updated[i] = { ...r, ot_score: score };
-              await Relation.update(r.id, { ot_score: score });
-            }
-          }
-          setRelations([...updated]);
-        })();
-      }
+      enrichWithOpenTargets(existing);
     } catch (error) {
       console.error('Error loading relations:', error);
     }
@@ -188,20 +183,7 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
       }
 
       setRelations(savedRelations);
-
-      // Fetch Open Targets scores in background (non-blocking)
-      (async () => {
-        const updated = [...savedRelations];
-        for (let i = 0; i < updated.length; i++) {
-          const r = updated[i];
-          const score = await fetchOpenTargetsScore(r.disease, r.gene);
-          if (score !== null) {
-            updated[i] = { ...r, ot_score: score };
-            await Relation.update(r.id, { ot_score: score });
-          }
-        }
-        setRelations([...updated]);
-      })();
+      enrichWithOpenTargets(savedRelations);
       setRetryCount(0);
     } catch (error) {
       console.error('Extraction error:', error);
@@ -546,11 +528,11 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
                                     ? 'border-amber-500/30 text-amber-300'
                                     : 'border-slate-500/30 text-slate-400'
                             }>
-                              OpenTargets: {rel.ot_score === null || rel.ot_score === undefined
-                                ? '...'
+                              {rel.ot_score === null || rel.ot_score === undefined
+                                ? <><Loader2 className="w-3 h-3 inline animate-spin mr-1" />OT Score...</>
                                 : rel.ot_score === 0
-                                  ? 'No match'
-                                  : rel.ot_score.toFixed(2)}
+                                  ? 'OT: No match'
+                                  : `OT Score: ${rel.ot_score.toFixed(2)}`}
                             </Badge>
                           </div>
 
