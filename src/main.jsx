@@ -18,6 +18,7 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+export const firebase_app = app;
 export const auth_instance = getAuth(app);
 
 // Initialize Analytics only in browser environments

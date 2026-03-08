@@ -1,8 +1,19 @@
-// Placeholder for custom integrations client
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { firebase_app } from '../main.jsx';
+
+const functions = getFunctions(firebase_app, 'us-central1');
+const invokeLLMCallable = httpsCallable(functions, 'invokeLLM');
+
 export const Core = {
   InvokeLLM: async (params) => {
-    console.log('Core.InvokeLLM() called with params:', params, ' - implement custom logic');
-    return { response: 'This is a placeholder AI response.' }; // Placeholder
+    try {
+      const { data } = await invokeLLMCallable(params || {});
+      return data;
+    } catch (error) {
+      const message = error?.message || 'InvokeLLM failed';
+      console.error('Core.InvokeLLM() error:', message);
+      throw new Error(message);
+    }
   },
   SendEmail: async (params) => {
     console.log('Core.SendEmail() called with params:', params, ' - implement custom logic');

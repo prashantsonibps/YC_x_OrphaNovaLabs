@@ -25,3 +25,6 @@ dist-ssr
 
 .env
 .firebase/
+functions/.env
+functions/.env.*
+!functions/.env.local.example
