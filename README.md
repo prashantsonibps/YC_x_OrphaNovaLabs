@@ -1,4 +1,3 @@
-# Base44 App
 
 
 This app was created automatically by Base44.
