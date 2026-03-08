@@ -48,13 +48,9 @@ function PagesContent() {
         <Layout currentPageName={currentPage}>
             <Routes>            
                 
-                    <Route path="/" element={<Home />} />
-                
-                
-                <Route path="/Home" element={<Home />} />
-                
+                    <Route path="/" element={<Dashboard />} />
+                <Route path="/Home" element={<Dashboard />} />
                 <Route path="/Lab" element={<Lab />} />
-                
                 <Route path="/Dashboard" element={<Dashboard />} />
                 
                 <Route path="/AdminDashboard" element={<AdminDashboard />} />

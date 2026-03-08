@@ -214,7 +214,7 @@ function LabContent() {
     return () => clearInterval(interval);
   }, [currentProject]);
 
-  if (loading || !user || !currentProject) {
+  if (loading || !currentProject) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${
         theme === 'dark' ? 'bg-slate-950' : 'bg-stone-50'

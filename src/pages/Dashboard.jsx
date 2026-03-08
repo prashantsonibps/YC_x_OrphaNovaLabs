@@ -189,7 +189,7 @@ function DashboardContent() {
     return <WelcomeAnimation />;
   }
 
-  if (loading || !user) {
+  if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${
       theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'}`

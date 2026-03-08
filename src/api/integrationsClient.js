@@ -1,17 +1,45 @@
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { firebase_app } from '../main.jsx';
 
-const functions = getFunctions(firebase_app, 'us-central1');
-const invokeLLMCallable = httpsCallable(functions, 'invokeLLM');
+// Keep Firebase initialization local to avoid circular import timing with main.jsx.
+const firebaseConfig = {
+  apiKey: 'AIzaSyCFkpcxebXpT6idu74dUvypf6GQFaauX_Q',
+  authDomain: 'orphanovalabs.firebaseapp.com',
+  projectId: 'orphanovalabs',
+  storageBucket: 'orphanovalabs.firebasestorage.app',
+  messagingSenderId: '788467784982',
+  appId: '1:788467784982:web:e25b51a9dbaf49d1424437',
+  measurementId: 'G-6BBTX7FY52',
+};
+
+function getFunctionsInstance() {
+  const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  return getFunctions(app, 'us-central1');
+}
 
 export const Core = {
   InvokeLLM: async (params) => {
     try {
+      const functions = getFunctionsInstance();
+      const invokeLLMCallable = httpsCallable(functions, 'invokeLLM');
       const { data } = await invokeLLMCallable(params || {});
       return data;
     } catch (error) {
-      const message = error?.message || 'InvokeLLM failed';
-      console.error('Core.InvokeLLM() error:', message);
+      const rawMessage = error?.message || '';
+      const code = error?.code || '';
+      const details = typeof error?.details === 'string' ? error.details : '';
+      const combined = `${code} ${rawMessage} ${details}`.toLowerCase();
+
+      let message = rawMessage || 'InvokeLLM failed';
+      if (combined.includes('not-found') || combined.includes('404')) {
+        message = 'LLM backend not found. Deploy Firebase function "invokeLLM" to project orphanovalabs.';
+      } else if (combined.includes('failed-precondition') || combined.includes('anthropic_api_key')) {
+        message = 'LLM backend missing ANTHROPIC_API_KEY secret. Set the secret and redeploy functions.';
+      } else if (combined.includes('internal')) {
+        message = 'LLM backend internal error. Check Firebase Functions logs for invokeLLM.';
+      }
+
+      console.error('Core.InvokeLLM() error:', { code, rawMessage, details });
       throw new Error(message);
     }
   },

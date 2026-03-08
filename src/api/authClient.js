@@ -1,53 +1,77 @@
-// No sign-in/sign-up: app runs without authentication. Name/email stored in localStorage for profile.
+// No authentication: app runs without sign-in. Name/email in localStorage for profile only.
 const GUEST_STORAGE_KEYS = {
   name: 'orphanova_guest_name',
   email: 'orphanova_guest_email',
   preferences: 'orphanova_guest_preferences',
 };
 
+function safeGetItem(key) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key, value) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {}
+}
+
+function safeRemoveItem(key) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {}
+}
+
 function getGuestUser() {
+  const name = safeGetItem(GUEST_STORAGE_KEYS.name) || 'User';
+  const email = safeGetItem(GUEST_STORAGE_KEYS.email) || '';
+  let preferences = {};
+  try {
+    const raw = safeGetItem(GUEST_STORAGE_KEYS.preferences);
+    preferences = raw ? JSON.parse(raw) : {};
+  } catch {
+    preferences = {};
+  }
+
   return {
     uid: 'guest',
-    full_name: typeof localStorage !== 'undefined' ? (localStorage.getItem(GUEST_STORAGE_KEYS.name) || 'User') : 'User',
-    email: typeof localStorage !== 'undefined' ? (localStorage.getItem(GUEST_STORAGE_KEYS.email) || '') : '',
+    full_name: name,
+    email,
     photo_url: null,
     role: 'user',
     created_date: new Date().toISOString(),
-    preferences: (() => {
-      try {
-        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(GUEST_STORAGE_KEYS.preferences) : null;
-        return raw ? JSON.parse(raw) : {};
-      } catch {
-        return {};
-      }
-    })(),
+    preferences,
   };
 }
 
 export const auth = {
   isAuthenticated: async () => true,
 
-  redirectToLogin: () => {
+  redirectHome: () => {
     window.location.href = '/';
   },
 
   me: async () => getGuestUser(),
 
   logout: async () => {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(GUEST_STORAGE_KEYS.name);
-      localStorage.removeItem(GUEST_STORAGE_KEYS.email);
-      localStorage.removeItem(GUEST_STORAGE_KEYS.preferences);
-    }
+    safeRemoveItem(GUEST_STORAGE_KEYS.name);
+    safeRemoveItem(GUEST_STORAGE_KEYS.email);
+    safeRemoveItem(GUEST_STORAGE_KEYS.preferences);
     window.location.href = '/';
   },
 
   updateMe: async (data) => {
-    if (typeof localStorage !== 'undefined') {
-      if (data.full_name != null) localStorage.setItem(GUEST_STORAGE_KEYS.name, data.full_name);
-      if (data.email != null) localStorage.setItem(GUEST_STORAGE_KEYS.email, data.email);
-      if (data.preferences != null) localStorage.setItem(GUEST_STORAGE_KEYS.preferences, JSON.stringify(data.preferences));
-    }
+    if (data.full_name != null) safeSetItem(GUEST_STORAGE_KEYS.name, data.full_name);
+    if (data.email != null) safeSetItem(GUEST_STORAGE_KEYS.email, data.email);
+    if (data.preferences != null) safeSetItem(GUEST_STORAGE_KEYS.preferences, JSON.stringify(data.preferences));
     return { ...getGuestUser(), ...data };
   },
 };
