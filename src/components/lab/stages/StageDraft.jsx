@@ -14,10 +14,10 @@ import { Core } from '@/api/integrationsClient';
 
 const FORMATS = [
   { id: 'arxiv', name: 'arXiv', description: 'Open-access preprint format', enabled: true },
-  { id: 'nature', name: 'Nature (Soon)', description: 'Coming soon', enabled: false },
-  { id: 'cell', name: 'Cell (Soon)', description: 'Coming soon', enabled: false },
-  { id: 'grant', name: 'Grant (Soon)', description: 'Coming soon', enabled: false },
-  { id: 'conference', name: 'Conference (Soon)', description: 'Coming soon', enabled: false }
+  { id: 'nature', name: 'Nature', description: 'Nature journal format', enabled: true },
+  { id: 'cell', name: 'Cell', description: 'Cell journal format', enabled: true },
+  { id: 'grant', name: 'NIH Grant', description: 'NIH R01 grant application format', enabled: true },
+  { id: 'conference', name: 'Conference', description: 'Conference abstract format', enabled: true }
 ];
 
 const FORMAT_SECTIONS = {
@@ -194,9 +194,80 @@ Generate JSON with these fields:
           references: { type: "string" }
         };
         requiredFields = ["title", "summary", "specific_aims", "significance", "innovation", "approach", "budget_justification", "references"];
+      } else if (selectedFormat === 'conference') {
+        promptText = `Generate a conference abstract for rare disease research. This should be concise and high-impact.
+
+${context}
+
+Hypotheses: ${hypotheses.map(h => h.title).join('; ')}
+
+Generate JSON with these fields:
+- title: concise descriptive title (max 15 words)
+- authors: author list with affiliations
+- abstract: structured abstract with Background, Methods, Results, Conclusions sections (250-300 words)
+- keywords: 5-8 relevant MeSH-style keywords, comma-separated`;
+
+        schemaProperties = {
+          title: { type: "string" },
+          authors: { type: "string" },
+          abstract: { type: "string" },
+          keywords: { type: "string" }
+        };
+        requiredFields = ["title", "authors", "abstract", "keywords"];
+      } else if (selectedFormat === 'nature') {
+        promptText = `Generate a research article following Nature journal style. Title max 90 characters. Abstract max 200 words. Methods section at the end.
+
+${context}
+
+Hypotheses: ${hypotheses.map(h => h.title).join('; ')}
+
+Generate JSON with these fields:
+- title: concise title (max 90 characters)
+- abstract: single paragraph (max 200 words) summarizing the key finding
+- introduction: background leading to hypothesis (250 words)
+- results: findings with subheadings (400 words)
+- discussion: interpretation, limitations, and significance (300 words)
+- methods: detailed experimental procedures (300 words)
+- references: 10-15 numbered references in Nature style`;
+
+        schemaProperties = {
+          title: { type: "string" },
+          abstract: { type: "string" },
+          introduction: { type: "string" },
+          results: { type: "string" },
+          discussion: { type: "string" },
+          methods: { type: "string" },
+          references: { type: "string" }
+        };
+        requiredFields = ["title", "abstract", "introduction", "results", "discussion", "methods", "references"];
+      } else if (selectedFormat === 'cell') {
+        promptText = `Generate a research article following Cell journal style. Include a graphical summary concept. Use "Summary" instead of "Abstract".
+
+${context}
+
+Hypotheses: ${hypotheses.map(h => h.title).join('; ')}
+
+Generate JSON with these fields:
+- title: descriptive title
+- summary: 150-word summary including "Highlights" bullet points at the start
+- introduction: focused background (250 words)
+- results: detailed findings with evidence (400 words)
+- discussion: broader implications and future directions (300 words)
+- methods: experimental procedures with key reagent details (300 words)
+- references: 10-15 references in Cell style`;
+
+        schemaProperties = {
+          title: { type: "string" },
+          summary: { type: "string" },
+          introduction: { type: "string" },
+          results: { type: "string" },
+          discussion: { type: "string" },
+          methods: { type: "string" },
+          references: { type: "string" }
+        };
+        requiredFields = ["title", "summary", "introduction", "results", "discussion", "methods", "references"];
       } else {
-        // Research paper format (arXiv, Nature, Cell)
-        promptText = `Generate a scientific research paper for rare disease research. Be concise but thorough.
+        promptText = `Generate a scientific research paper in arXiv preprint format. Be concise but thorough.
 
 ${context}
 
@@ -280,10 +351,7 @@ Generate JSON with these fields:
 
   const handleFormatChange = async (formatId) => {
     const format = FORMATS.find(f => f.id === formatId);
-    if (!format.enabled) {
-      alert(`${format.name} format is coming soon! Currently only arXiv format is available.`);
-      return;
-    }
+    if (!format.enabled) return;
     setSelectedFormat(formatId);
     setCurrentSection('title');
     if (draft) {
@@ -357,7 +425,13 @@ Provide 3 specific suggestions for improvement focusing on clarity, scientific r
       setShowExportMenu(false);
       
       if (format === 'docx') {
-        alert(`${format.toUpperCase()} export coming soon!`);
+        const blob = new Blob([content.title + '\n\n' + Object.values(content).filter(v => typeof v === 'string').join('\n\n')], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(content.title || 'paper').replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
         return;
       }
 
@@ -456,7 +530,7 @@ ${figuresLatex}
       };
       
       const userName = user?.full_name || 'Researcher';
-      const userEmail = user?.email || 'researcher@example.com';
+      const userEmail = user?.email || '';
       
       // Generate figures LaTeX
       let figuresLatex = '';
@@ -625,7 +699,7 @@ ${stripHtml(content.references || 'No references provided.')}
     
     const cleanTitle = sanitizeTitle(content.title);
     const userName = user?.full_name || 'Researcher';
-    const userEmail = user?.email || 'researcher@example.com';
+    const userEmail = user?.email || '';
     const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // Process sections - prevent duplication and ensure clean text

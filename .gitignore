@@ -28,3 +28,4 @@ dist-ssr
 functions/.env
 functions/.env.*
 !functions/.env.local.example
+__pycache__/

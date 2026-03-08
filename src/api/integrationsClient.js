@@ -48,8 +48,7 @@ export const Core = {
     }
   },
   SendEmail: async (params) => {
-    console.log('Core.SendEmail() called with params:', params, ' - implement custom logic');
-    return { success: true }; // Placeholder
+    throw new Error('Email sending requires a configured email provider (SendGrid, Resend, etc.).');
   },
   UploadFile: async (params) => {
     const { file } = params || {};
@@ -69,20 +68,42 @@ export const Core = {
     }
   },
   GenerateImage: async (params) => {
-    console.log('Core.GenerateImage() called with params:', params, ' - implement custom logic');
-    return { image_url: 'https://placeholder.com/image.jpg' }; // Placeholder
+    throw new Error('Image generation requires a configured provider (DALL-E, Stability AI, etc.).');
   },
   ExtractDataFromUploadedFile: async (params) => {
-    console.log('Core.ExtractDataFromUploadedFile() called with params:', params, ' - implement custom logic');
-    return { extracted_data: 'Placeholder extracted data.' }; // Placeholder
+    throw new Error('File data extraction requires a configured document parsing service.');
   },
   CreateFileSignedUrl: async (params) => {
-    console.log('Core.CreateFileSignedUrl() called with params:', params, ' - implement custom logic');
-    return { signed_url: 'https://placeholder.com/signed_url' }; // Placeholder
+    throw new Error('Signed URL generation requires Firebase Storage or equivalent configured.');
   },
   UploadPrivateFile: async (params) => {
-    console.log('Core.UploadPrivateFile() called with params:', params, ' - implement custom logic');
-    return { file_url: 'https://placeholder.com/private_file.jpg' }; // Placeholder
+    throw new Error('Private file upload requires Firebase Storage or equivalent configured.');
+  },
+  RunAlphaFold: async (params) => {
+    try {
+      const functions = getFunctionsInstance();
+      const callable = httpsCallable(functions, 'runAlphaFold', { timeout: 540000 });
+      const { data } = await callable(params || {});
+      return data;
+    } catch (error) {
+      const rawMessage = error?.message || '';
+      const code = error?.code || '';
+      console.error('Core.RunAlphaFold() error:', { code, rawMessage });
+      throw new Error(rawMessage || 'AlphaFold prediction failed');
+    }
+  },
+  ScreenDrugs: async (params) => {
+    try {
+      const functions = getFunctionsInstance();
+      const callable = httpsCallable(functions, 'screenDrugsModal', { timeout: 300000 });
+      const { data } = await callable(params || {});
+      return data;
+    } catch (error) {
+      const rawMessage = error?.message || '';
+      const code = error?.code || '';
+      console.error('Core.ScreenDrugs() error:', { code, rawMessage });
+      throw new Error(rawMessage || 'Drug screening failed');
+    }
   },
   RunExperiment: async (params) => {
     try {

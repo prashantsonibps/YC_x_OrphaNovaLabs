@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   FlaskConical, Loader2, Star, Play, Plus, TrendingUp, BarChart2,
   Activity, ExternalLink, Beaker, ShieldCheck, AlertTriangle, Atom,
-  Pill, Dna, X, CheckCircle2, XCircle
+  Pill, Dna, X, CheckCircle2, XCircle, Zap, ArrowUpDown
 } from 'lucide-react';
 import { Experiment, Hypothesis, Relation } from '@/api/entities';
 import { Core } from '@/api/integrations';
@@ -16,6 +16,15 @@ import {
 import { useTheme } from '../../ThemeContext';
 
 const CT_API = 'https://clinicaltrials.gov/api/v2/studies';
+const AF_CACHE_PREFIX = 'orphanova_alphafold_';
+
+function getCachedAlphaFold(geneName) {
+  if (!geneName) return null;
+  try {
+    const raw = localStorage.getItem(`${AF_CACHE_PREFIX}${geneName.toUpperCase()}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
 
 async function fetchClinicalTrials(diseaseName) {
   if (!diseaseName) return [];
@@ -76,6 +85,46 @@ function extractDrugAndGene(experiment, relations) {
   }
 
   return { drugName: bestDrug, geneName: bestGene };
+}
+
+function extractDrugsForExperiment(experiment, relations) {
+  const text = `${experiment.title || ''} ${experiment.description || ''} ${(experiment.biomarkers || []).join(' ')}`;
+  const textLower = text.toLowerCase();
+  const found = new Set();
+
+  for (const rel of relations) {
+    if (rel.drug && rel.drug !== 'N/A' && textLower.includes(rel.drug.toLowerCase())) {
+      found.add(rel.drug);
+    }
+  }
+
+  // Match real drug name patterns: words ending in known pharmaceutical suffixes
+  // or parenthetical abbreviations like EGCG, SAHA, etc.
+  const pharmaPattern = /\b(\w{4,}(?:ib|ab|mab|nib|zole|pine|pam|ine|cin|cil|ole|tin|one|fen|tan|ril|pril|lol|vir|mus|zumab|ximab|nilotinib|dasatinib))\b/gi;
+  const pharmaMatches = text.match(pharmaPattern) || [];
+
+  const EXCLUDE = new Set(['determine', 'combine', 'examine', 'decline', 'medicine', 'baseline',
+    'routine', 'discipline', 'outline', 'machine', 'pipeline', 'online', 'timeline', 'define',
+    'imagine', 'recognize', 'characterize', 'organize', 'metabolize', 'immunize', 'optimize',
+    'differentiate', 'investigate', 'demonstrate', 'concentrate', 'incorporate', 'coordinate',
+    'generate', 'degenerate', 'correlate', 'integrate', 'validate', 'isolate', 'quantitate',
+    'protein', 'receptor', 'biomarker', 'organoid', 'treatment', 'expression', 'activation']);
+
+  for (const m of pharmaMatches) {
+    if (!EXCLUDE.has(m.toLowerCase())) found.add(m);
+  }
+
+  // Match known abbreviations in parentheses like (EGCG), (SAHA), (CX-4945)
+  const abbrPattern = /\(([A-Z][A-Z0-9-]{1,12})\)/g;
+  let abbrMatch;
+  while ((abbrMatch = abbrPattern.exec(text)) !== null) {
+    const abbr = abbrMatch[1];
+    if (!['RNA', 'DNA', 'PCR', 'PDB', 'CIF', 'MSA', 'MRI', 'CSF', 'CNS', 'HIA', 'BBB', 'MAP', 'SOD', 'PSD', 'GABA', 'CREB', 'BDNF', 'iPSC', 'iPSCs'].includes(abbr)) {
+      found.add(abbr);
+    }
+  }
+
+  return [...found];
 }
 
 function RiskBadge({ level }) {
@@ -348,13 +397,38 @@ function AdmetResultsPanel({ results, theme }) {
                   <h5 className={`font-semibold text-sm ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-700'}`}>Binding Affinity</h5>
                 </div>
                 {docking ? (
-                  <div className="space-y-1">
-                    <p className={`text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Tamarind Docking result available
+                  <div className="space-y-2">
+                    <p className={`text-sm font-medium ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                      Chai-1 Docking Results
                     </p>
-                    <pre className={`text-xs p-2 rounded overflow-auto max-h-24 ${
-                      theme === 'dark' ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-700'
-                    }`}>{typeof docking === 'string' ? docking : JSON.stringify(docking, null, 2)}</pre>
+                    {(() => {
+                      const d = typeof docking === 'string' ? (() => { try { return JSON.parse(docking); } catch { return null; } })() : docking;
+                      if (d && typeof d === 'object') {
+                        const score = d.aggregate_score ?? d.score ?? d.pTM ?? d.ptm;
+                        const ipTM = d.ipTM ?? d.iptm;
+                        return (
+                          <div className="flex gap-4">
+                            {score != null && (
+                              <div>
+                                <p className="text-xs text-slate-500">Score</p>
+                                <p className={`text-sm font-bold ${score > 0.7 ? 'text-green-400' : score > 0.4 ? 'text-amber-400' : 'text-red-400'}`}>
+                                  {typeof score === 'number' ? score.toFixed(3) : score}
+                                </p>
+                              </div>
+                            )}
+                            {ipTM != null && (
+                              <div>
+                                <p className="text-xs text-slate-500">ipTM</p>
+                                <p className={`text-sm font-bold ${ipTM > 0.8 ? 'text-green-400' : 'text-amber-400'}`}>
+                                  {typeof ipTM === 'number' ? ipTM.toFixed(3) : ipTM}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return <p className={`text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>{String(docking)}</p>;
+                    })()}
                   </div>
                 ) : admet.binding_affinity_estimate ? (
                   <p className={`text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
@@ -420,6 +494,12 @@ export default function StageExperiments({ project, onComplete }) {
   const [admetResults, setAdmetResults] = useState({});
   const [admetError, setAdmetError] = useState(null);
   const [admetStep, setAdmetStep] = useState('');
+
+  const [screeningResults, setScreeningResults] = useState({});
+  const [screeningLoading, setScreeningLoading] = useState(null);
+  const [screeningError, setScreeningError] = useState(null);
+
+  const [dockingResults, setDockingResults] = useState({});
 
   useEffect(() => {
     loadExistingExperiments();
@@ -557,7 +637,7 @@ Return as JSON with experiments array.`,
       setTimeRemaining(0);
 
       if (savedExps.length < 3) {
-        setError('Limited experimental designs due to novel research context. Future NOVUS updates will better support frontier research.');
+        setError('Limited experimental designs generated. Try adding more validated hypotheses or relationships from earlier stages.');
       }
 
       setExperiments(savedExps);
@@ -584,43 +664,50 @@ Return as JSON with experiments array.`,
     }, 400);
 
     try {
+      const { drugName, geneName } = extractDrugAndGene(exp, relations);
+
+      const admetContext = admetResults[exp.id]
+        ? `\n\nReal ADMET data for ${admetResults[exp.id]?.drug?.name || drugName} (source: ${admetResults[exp.id]?.source}):\n${JSON.stringify(admetResults[exp.id]?.admet || {}, null, 1)}`
+        : '';
+
+      const screenContext = screeningResults[exp.id]
+        ? `\n\nModal RDKit screening results:\n${(screeningResults[exp.id]?.results || []).map(d => `- ${d.name}: QED=${d.qed}, MW=${d.mw}, LogP=${d.logp}, Lipinski=${d.lipinski_pass ? 'Pass' : 'Fail'}`).join('\n')}`
+        : '';
+
+      const relContext = relations.length > 0
+        ? `\n\nValidated relationships:\n${relations.filter(r => r.status === 'valid').slice(0, 8).map(r => `- ${r.drug || 'N/A'} → ${r.gene || 'N/A'} (${r.relationship_type}): "${r.evidence}"`).join('\n')}`
+        : '';
+
       const result = await Core.InvokeLLM({
-        prompt: `Simulate ${exp.type} experiment: "${exp.title}" for ${project.disease_name}.
+        prompt: `You are a biomedical research analyst. Based on the following REAL data collected through this research pipeline, provide a critical analysis of this proposed experiment.
 
-Generate realistic experimental results:
-- success_rate: 0-100%
-- key_findings: array of 3-5 findings
-- data_points: array of 10-15 numeric measurements
-- statistical_significance: p-value
-- visualization_data: time series data for graph
-- molecular_markers: expression levels
+Experiment: "${exp.title}"
+Type: ${exp.type}
+Disease: ${project.disease_name}
+Protocol: ${exp.description}
+Drug: ${drugName || 'Not specified'}, Gene target: ${geneName || 'Not specified'}
+${admetContext}${screenContext}${relContext}
 
-Return as JSON with detailed results.`,
+Analyze this experiment based on the real data above. Do NOT invent data points. Do NOT fabricate p-values or statistics. Only reference data that was actually provided above.
+
+Provide:
+1. feasibility_assessment: Rate 1-5 based on the ADMET profile, drug-likeness, and protocol complexity
+2. key_insights: 3-5 specific insights drawn from the real ADMET, screening, or relationship data provided — cite the actual values
+3. risks: specific risks identified from the real data (e.g., ADMET toxicity flags, poor QED scores, Lipinski failures)
+4. recommended_modifications: concrete suggestions to improve the experiment based on the data
+5. literature_gaps: what additional data would strengthen this experiment
+6. overall_score: 1-100 honest assessment of likelihood this experiment produces actionable results
+
+Return as JSON.`,
         response_json_schema: {
           type: "object",
           properties: {
-            success_rate: { type: "number" },
-            key_findings: { type: "array", items: { type: "string" } },
-            data_points: { type: "array", items: { type: "number" } },
-            statistical_significance: { type: "number" },
-            visualization_data: {
-              type: "object",
-              properties: {
-                labels: { type: "array", items: { type: "string" } },
-                values: { type: "array", items: { type: "number" } }
-              }
-            },
-            molecular_markers: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  baseline: { type: "number" },
-                  treated: { type: "number" }
-                }
-              }
-            }
+            feasibility_assessment: { type: "number" },
+            key_insights: { type: "array", items: { type: "string" } },
+            risks: { type: "array", items: { type: "string" } },
+            recommended_modifications: { type: "array", items: { type: "string" } },
+            literature_gaps: { type: "array", items: { type: "string" } },
+            overall_score: { type: "number" }
           }
         }
       });
@@ -631,11 +718,10 @@ Return as JSON with detailed results.`,
 
       setExperimentResults(prev => ({ ...prev, [exp.id]: result }));
 
-      await updateScore(exp.id, 'feasibility_score', Math.floor(result.success_rate / 20));
-      await updateScore(exp.id, 'impact_score', result.success_rate > 70 ? 5 : result.success_rate > 50 ? 4 : 3);
-      await updateScore(exp.id, 'novelty_score', 4);
+      const feasScore = result.feasibility_assessment || Math.ceil(result.overall_score / 20);
+      await updateScore(exp.id, 'feasibility_score', Math.min(5, Math.max(1, feasScore)));
     } catch (err) {
-      console.error('Experiment run error:', err);
+      console.error('Experiment analysis error:', err);
       clearInterval(progressInterval);
     } finally {
       setTimeout(() => setRunningExperiment(null), 500);
@@ -644,21 +730,35 @@ Return as JSON with detailed results.`,
 
   const handleRunAdmet = async (exp) => {
     const { drugName, geneName } = extractDrugAndGene(exp, relations);
+    console.log(`[ADMET] Experiment "${exp.title}" → drug="${drugName}", gene="${geneName}"`);
+
     setAdmetModal(exp);
     setAdmetLoading(true);
     setAdmetError(null);
     setAdmetStep('Looking up compound in PubChem...');
 
     try {
-      setAdmetStep('Submitting to ADMET analysis pipeline...');
+      if (!drugName) {
+        throw new Error(`No drug name found for this experiment. Validate drug-gene relationships in the Evidence stage first.`);
+      }
+      const resolvedDrug = drugName;
+      const resolvedGene = geneName || null;
+
+      const afCached = resolvedGene ? getCachedAlphaFold(resolvedGene) : null;
+      console.log(`[ADMET] Calling runExperiment → drugName="${resolvedDrug}", geneName="${resolvedGene}", alphaFoldCached=${!!afCached}`);
+
+      setAdmetStep(afCached
+        ? 'Found cached AlphaFold structure — submitting to ADMET + docking...'
+        : 'Submitting to ADMET analysis pipeline...'
+      );
 
       const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out after 5 minutes. The analysis may still be running — try again shortly.')), 300000)
       );
 
       const apiCall = Core.RunExperiment({
-        drugName: drugName || project.disease_name,
-        geneName: geneName || null,
+        drugName: resolvedDrug,
+        geneName: resolvedGene,
         diseaseName: project.disease_name,
         experimentTitle: exp.title,
       });
@@ -667,12 +767,46 @@ Return as JSON with detailed results.`,
       const result = await Promise.race([apiCall, timeout]);
 
       setAdmetResults(prev => ({ ...prev, [exp.id]: result }));
+      if (result.docking) {
+        setDockingResults(prev => ({ ...prev, [exp.id]: result.docking }));
+      }
       setAdmetStep('');
     } catch (err) {
       console.error('ADMET analysis error:', err);
       setAdmetError(err.message || 'ADMET analysis failed. Please try again.');
     } finally {
       setAdmetLoading(false);
+    }
+  };
+
+  const handleScreenDrugs = async (exp) => {
+    setScreeningLoading(exp.id);
+    setScreeningError(null);
+
+    try {
+      let drugNames = extractDrugsForExperiment(exp, relations);
+      console.log(`[ScreenDrugs] Experiment "${exp.title}" → extracted drugs:`, drugNames);
+
+      if (drugNames.length === 0) {
+        drugNames = [...new Set(
+          relations
+            .map(r => r.drug)
+            .filter(d => d && d !== 'N/A' && d !== 'unknown drug')
+        )];
+        console.log(`[ScreenDrugs] Falling back to all relation drugs:`, drugNames);
+      }
+
+      if (drugNames.length === 0) {
+        throw new Error('No drugs found for this experiment. Complete the Evidence stage first.');
+      }
+
+      const result = await Core.ScreenDrugs({ drugNames });
+      setScreeningResults(prev => ({ ...prev, [exp.id]: result }));
+    } catch (err) {
+      console.error('Drug screening error:', err);
+      setScreeningError(err.message || 'Drug screening failed.');
+    } finally {
+      setScreeningLoading(null);
     }
   };
 
@@ -939,51 +1073,267 @@ Return as JSON with detailed results.`,
                           </motion.div>
                         )}
 
-                        {/* AI Simulation Results */}
+                        {/* Parallel Drug Screening Results */}
+                        {screeningResults[exp.id] && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mb-4">
+                            <div className={`p-4 rounded-lg border ${theme === 'dark' ? 'bg-orange-900/10 border-orange-500/20' : 'bg-orange-50 border-orange-200'}`}>
+                              <div className="flex items-center gap-2 mb-3">
+                                <Zap className="w-5 h-5 text-orange-400" />
+                                <h4 className={`font-bold text-sm ${theme === 'dark' ? 'text-orange-300' : 'text-orange-700'}`}>
+                                  Parallel Drug Screening
+                                </h4>
+                                <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/30 text-xs">
+                                  {screeningResults[exp.id].screened} compounds
+                                </Badge>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className={`border-b ${theme === 'dark' ? 'border-slate-700' : 'border-slate-200'}`}>
+                                      <th className={`text-left py-2 pr-3 text-xs font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Rank</th>
+                                      <th className={`text-left py-2 pr-3 text-xs font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Drug Name</th>
+                                      <th className={`text-left py-2 pr-3 text-xs font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                                        <span className="flex items-center gap-1">QED Score <ArrowUpDown className="w-3 h-3" /></span>
+                                      </th>
+                                      <th className={`text-left py-2 pr-3 text-xs font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>MW (g/mol)</th>
+                                      <th className={`text-left py-2 pr-3 text-xs font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>LogP</th>
+                                      <th className={`text-left py-2 text-xs font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Lipinski</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(screeningResults[exp.id].results || []).map((drug, idx) => (
+                                      <tr key={idx} className={`border-b last:border-0 ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100'}`}>
+                                        <td className={`py-2 pr-3 font-bold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                        </td>
+                                        <td className={`py-2 pr-3 font-medium ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                                          {drug.name}
+                                          {drug.error && <span className="text-xs text-red-400 ml-1">({drug.error})</span>}
+                                        </td>
+                                        <td className="py-2 pr-3">
+                                          <div className="flex items-center gap-2">
+                                            <span className={`font-bold ${
+                                              drug.qed >= 0.67 ? 'text-green-400' :
+                                              drug.qed >= 0.33 ? 'text-amber-400' : 'text-red-400'
+                                            }`}>{drug.qed?.toFixed(3)}</span>
+                                            <div className={`w-16 h-1.5 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                                              <div className={`h-full rounded-full ${
+                                                drug.qed >= 0.67 ? 'bg-green-400' :
+                                                drug.qed >= 0.33 ? 'bg-amber-400' : 'bg-red-400'
+                                              }`} style={{ width: `${(drug.qed || 0) * 100}%` }} />
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td className={`py-2 pr-3 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                                          {drug.mw || '—'}
+                                        </td>
+                                        <td className={`py-2 pr-3 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                                          {drug.logp || '—'}
+                                        </td>
+                                        <td className="py-2">
+                                          {drug.lipinski_pass ? (
+                                            <Badge className="bg-green-500/20 text-green-300 border-green-500/30 text-xs">Pass</Badge>
+                                          ) : (
+                                            <Badge className="bg-red-500/20 text-red-300 border-red-500/30 text-xs">
+                                              Fail ({drug.lipinski_violations})
+                                            </Badge>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <p className={`text-xs mt-3 flex items-center gap-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+                                <Zap className="w-3 h-3" />
+                                Screened {screeningResults[exp.id].screened} compounds in parallel on Modal
+                                {screeningResults[exp.id].drugs_submitted !== screeningResults[exp.id].drugs_requested && (
+                                  <span className="ml-1">
+                                    ({screeningResults[exp.id].drugs_requested - screeningResults[exp.id].drugs_submitted} drugs not found in PubChem)
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {screeningLoading === exp.id && (
+                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-4">
+                            <div className={`p-6 rounded-lg border text-center ${theme === 'dark' ? 'bg-orange-900/10 border-orange-500/20' : 'bg-orange-50 border-orange-200'}`}>
+                              <Loader2 className="w-8 h-8 text-orange-400 animate-spin mx-auto mb-3" />
+                              <p className={`font-medium text-sm ${theme === 'dark' ? 'text-orange-300' : 'text-orange-700'}`}>
+                                Screening drugs in parallel on Modal...
+                              </p>
+                              <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+                                Looking up SMILES from PubChem, then running RDKit QED + Lipinski
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {screeningError && screeningLoading !== exp.id && !screeningResults[exp.id] && (
+                          <div className={`p-3 rounded-lg mb-4 ${theme === 'dark' ? 'bg-red-900/20 border border-red-500/30' : 'bg-red-50 border border-red-200'}`}>
+                            <p className={`text-sm ${theme === 'dark' ? 'text-red-300' : 'text-red-600'}`}>{screeningError}</p>
+                          </div>
+                        )}
+
+                        {/* Docking / Binding Affinity Results */}
+                        {dockingResults[exp.id] && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mb-4">
+                            <div className={`p-4 rounded-lg border ${theme === 'dark' ? 'bg-indigo-900/10 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200'}`}>
+                              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                                <Dna className="w-5 h-5 text-indigo-400" />
+                                <h4 className={`font-bold text-sm ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                                  Chai-1 Molecular Docking
+                                </h4>
+                                <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30 text-xs">
+                                  Tamarind Bio
+                                </Badge>
+                                {(() => {
+                                  const { geneName } = extractDrugAndGene(exp, relations);
+                                  const afCached = geneName ? getCachedAlphaFold(geneName) : null;
+                                  return afCached ? (
+                                    <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-xs">
+                                      AlphaFold structure used
+                                    </Badge>
+                                  ) : null;
+                                })()}
+                              </div>
+                              {(() => {
+                                const dock = dockingResults[exp.id];
+                                const dockObj = typeof dock === 'string' ? (() => { try { return JSON.parse(dock); } catch { return null; } })() : dock;
+                                if (dockObj && typeof dockObj === 'object') {
+                                  const score = dockObj.aggregate_score ?? dockObj.score ?? dockObj.pTM ?? dockObj.ptm;
+                                  const ipTM = dockObj.ipTM ?? dockObj.iptm;
+                                  const pLDDT = dockObj.pLDDT ?? dockObj.plddt ?? dockObj.average_plddt;
+                                  return (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-3 gap-3">
+                                        {score != null && (
+                                          <div className={`p-3 rounded ${theme === 'dark' ? 'bg-slate-900/50' : 'bg-white'}`}>
+                                            <p className="text-xs text-slate-500">Confidence Score</p>
+                                            <p className={`text-lg font-bold ${score > 0.7 ? 'text-green-400' : score > 0.4 ? 'text-amber-400' : 'text-red-400'}`}>
+                                              {typeof score === 'number' ? score.toFixed(3) : score}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {ipTM != null && (
+                                          <div className={`p-3 rounded ${theme === 'dark' ? 'bg-slate-900/50' : 'bg-white'}`}>
+                                            <p className="text-xs text-slate-500">ipTM</p>
+                                            <p className={`text-lg font-bold ${ipTM > 0.8 ? 'text-green-400' : ipTM > 0.5 ? 'text-amber-400' : 'text-red-400'}`}>
+                                              {typeof ipTM === 'number' ? ipTM.toFixed(3) : ipTM}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {pLDDT != null && (
+                                          <div className={`p-3 rounded ${theme === 'dark' ? 'bg-slate-900/50' : 'bg-white'}`}>
+                                            <p className="text-xs text-slate-500">pLDDT</p>
+                                            <p className={`text-lg font-bold ${pLDDT > 70 ? 'text-green-400' : pLDDT > 50 ? 'text-amber-400' : 'text-red-400'}`}>
+                                              {typeof pLDDT === 'number' ? pLDDT.toFixed(1) : pLDDT}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {!score && !ipTM && !pLDDT && (
+                                        <div className={`text-xs p-3 rounded overflow-auto max-h-24 ${theme === 'dark' ? 'bg-slate-900 text-slate-300' : 'bg-white text-slate-700'}`}>
+                                          <pre className="whitespace-pre-wrap">{JSON.stringify(dockObj, null, 2)}</pre>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <p className={`text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                                    {String(dock)}
+                                  </p>
+                                );
+                              })()}
+                              <p className={`text-xs mt-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+                                Structure prediction + docking via Chai-1 on Tamarind Bio
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {/* AI Analysis Results */}
                         {experimentResults[exp.id] && (
                           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 space-y-4">
-                            <div className={`p-4 rounded-lg ${theme === 'dark' ? 'bg-green-900/20 border border-green-500/30' : 'bg-green-50 border border-green-200'}`}>
+                            <div className={`p-4 rounded-lg ${theme === 'dark' ? 'bg-blue-900/15 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
                               <div className="flex items-center gap-2 mb-3">
-                                <Activity className="w-5 h-5 text-green-400" />
-                                <h4 className={`font-bold ${theme === 'dark' ? 'text-green-300' : 'text-green-700'}`}>AI Simulation Results</h4>
+                                <Activity className="w-5 h-5 text-blue-400" />
+                                <h4 className={`font-bold ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>AI Experiment Analysis</h4>
+                                <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
+                                  Based on pipeline data
+                                </Badge>
                               </div>
-                              <div className="grid grid-cols-2 gap-4 mb-4">
-                                <div>
-                                  <p className="text-xs text-slate-500 mb-1">Success Rate</p>
-                                  <p className="text-2xl font-bold text-green-400">{experimentResults[exp.id].success_rate}%</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-slate-500 mb-1">P-Value</p>
-                                  <p className="text-2xl font-bold text-cyan-400">{experimentResults[exp.id].statistical_significance?.toFixed(4)}</p>
-                                </div>
-                              </div>
-                              <div className="mb-4">
-                                <p className="text-xs text-slate-500 mb-2">Key Findings:</p>
-                                <ul className="space-y-1">
-                                  {experimentResults[exp.id].key_findings?.map((finding, idx) => (
-                                    <li key={idx} className={`text-sm flex items-start gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
-                                      <span className="text-green-400">•</span>{finding}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              {experimentResults[exp.id].molecular_markers && (
-                                <div>
-                                  <p className="text-xs text-slate-500 mb-2">Molecular Expression Levels:</p>
-                                  <div className="space-y-2">
-                                    {experimentResults[exp.id].molecular_markers.slice(0, 5).map((marker, idx) => (
-                                      <div key={idx}>
-                                        <div className="flex justify-between text-xs mb-1">
-                                          <span className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>{marker.name}</span>
-                                          <span className={theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}>{marker.treated}x (from {marker.baseline}x)</span>
-                                        </div>
-                                        <div className={`h-2 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'}`}>
-                                          <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
-                                            style={{ width: `${Math.min(marker.treated * 10, 100)}%` }} />
-                                        </div>
-                                      </div>
-                                    ))}
+
+                              {experimentResults[exp.id].overall_score != null && (
+                                <div className="mb-4">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs text-slate-500">Feasibility Score</p>
+                                    <span className={`text-lg font-bold ${
+                                      experimentResults[exp.id].overall_score >= 70 ? 'text-green-400' :
+                                      experimentResults[exp.id].overall_score >= 40 ? 'text-amber-400' : 'text-red-400'
+                                    }`}>{experimentResults[exp.id].overall_score}/100</span>
                                   </div>
+                                  <div className={`h-2 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                                    <div className={`h-full ${
+                                      experimentResults[exp.id].overall_score >= 70 ? 'bg-green-400' :
+                                      experimentResults[exp.id].overall_score >= 40 ? 'bg-amber-400' : 'bg-red-400'
+                                    }`} style={{ width: `${experimentResults[exp.id].overall_score}%` }} />
+                                  </div>
+                                </div>
+                              )}
+
+                              {experimentResults[exp.id].key_insights?.length > 0 && (
+                                <div className="mb-4">
+                                  <p className={`text-xs font-semibold mb-2 ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>Key Insights (from real data):</p>
+                                  <ul className="space-y-1.5">
+                                    {experimentResults[exp.id].key_insights.map((insight, idx) => (
+                                      <li key={idx} className={`text-sm flex items-start gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />{insight}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {experimentResults[exp.id].risks?.length > 0 && (
+                                <div className="mb-4">
+                                  <p className={`text-xs font-semibold mb-2 ${theme === 'dark' ? 'text-red-300' : 'text-red-700'}`}>Identified Risks:</p>
+                                  <ul className="space-y-1.5">
+                                    {experimentResults[exp.id].risks.map((risk, idx) => (
+                                      <li key={idx} className={`text-sm flex items-start gap-2 ${theme === 'dark' ? 'text-red-200/80' : 'text-red-700'}`}>
+                                        <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />{risk}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {experimentResults[exp.id].recommended_modifications?.length > 0 && (
+                                <div className="mb-4">
+                                  <p className={`text-xs font-semibold mb-2 ${theme === 'dark' ? 'text-amber-300' : 'text-amber-700'}`}>Recommended Modifications:</p>
+                                  <ul className="space-y-1.5">
+                                    {experimentResults[exp.id].recommended_modifications.map((mod, idx) => (
+                                      <li key={idx} className={`text-sm flex items-start gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                                        <span className="text-amber-400 shrink-0">→</span>{mod}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {experimentResults[exp.id].literature_gaps?.length > 0 && (
+                                <div>
+                                  <p className={`text-xs font-semibold mb-2 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Data Gaps to Address:</p>
+                                  <ul className="space-y-1">
+                                    {experimentResults[exp.id].literature_gaps.map((gap, idx) => (
+                                      <li key={idx} className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                                        • {gap}
+                                      </li>
+                                    ))}
+                                  </ul>
                                 </div>
                               )}
                             </div>
@@ -998,9 +1348,9 @@ Return as JSON with detailed results.`,
                                 disabled={runningExperiment === exp.id}
                                 className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700">
                                 {runningExperiment === exp.id ? (
-                                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Running...</>
+                                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analyzing...</>
                                 ) : (
-                                  <><Play className="w-4 h-4 mr-2" />Run AI Experiment</>
+                                  <><Play className="w-4 h-4 mr-2" />Analyze Experiment</>
                                 )}
                               </Button>
                               <Button variant="outline" className={theme === 'dark' ? 'border-slate-700' : 'border-slate-300'}>
@@ -1019,10 +1369,21 @@ Return as JSON with detailed results.`,
                               )}
                             </Button>
                           )}
+                          {!screeningResults[exp.id] && (
+                            <Button onClick={() => handleScreenDrugs(exp)}
+                              disabled={screeningLoading === exp.id}
+                              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600">
+                              {screeningLoading === exp.id ? (
+                                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Screening...</>
+                              ) : (
+                                <><Zap className="w-4 h-4 mr-2" />Screen Drugs</>
+                              )}
+                            </Button>
+                          )}
                         </div>
 
                         {/* Rating Section */}
-                        {(experimentResults[exp.id] || admetResults[exp.id] || exp.feasibility_score) && (
+                        {(experimentResults[exp.id] || admetResults[exp.id] || screeningResults[exp.id] || dockingResults[exp.id] || exp.feasibility_score) && (
                           <div className={`space-y-3 mt-6 pt-6 border-t ${theme === 'dark' ? 'border-slate-700' : 'border-slate-300'}`}>
                             {['feasibility_score', 'impact_score', 'novelty_score'].map((field) => (
                               <div key={field}>

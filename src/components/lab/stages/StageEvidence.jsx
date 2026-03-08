@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Database, Loader2, Check, X, AlertCircle, Info, ExternalLink, HelpCircle, BookOpen } from 'lucide-react';
+import { Database, Loader2, Check, X, AlertCircle, Info, ExternalLink, HelpCircle, BookOpen, Atom, Eye } from 'lucide-react';
 import { Relation, Literature, Draft } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
+} from '@/components/ui/dialog';
 import { useTheme } from '../../ThemeContext';
 import { Core } from '@/api/integrationsClient';
 import KnowledgeGraphScientific from '../visualizations/KnowledgeGraphScientific';
@@ -94,6 +97,26 @@ async function fetchOpenTargetsScore(diseaseName, geneName) {
   }
 }
 
+const AF_CACHE_PREFIX = 'orphanova_alphafold_';
+
+function getCachedAlphaFold(geneName) {
+  if (!geneName) return null;
+  try {
+    const raw = localStorage.getItem(`${AF_CACHE_PREFIX}${geneName.toUpperCase()}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function setCachedAlphaFold(geneName, data) {
+  if (!geneName || !data) return;
+  try {
+    localStorage.setItem(
+      `${AF_CACHE_PREFIX}${geneName.toUpperCase()}`,
+      JSON.stringify({ ...data, cached_at: Date.now() })
+    );
+  } catch (e) { console.warn('localStorage write failed:', e); }
+}
+
 export default function StageEvidence({ project, onComplete }) {
   const { theme } = useTheme();
   const [extracting, setExtracting] = useState(false);
@@ -105,6 +128,11 @@ export default function StageEvidence({ project, onComplete }) {
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
   const [showInfo, setShowInfo] = useState(false);
+
+  const [afLoading, setAfLoading] = useState({});
+  const [afResults, setAfResults] = useState({});
+  const [afError, setAfError] = useState({});
+  const [molstarModal, setMolstarModal] = useState(null);
 
   useEffect(() => {
     loadExistingRelations();
@@ -220,7 +248,7 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
       setTimeRemaining(0);
 
       if (savedRelations.length < 2) {
-        setError('🔬 Minimal evidence extracted. This disease may be under-researched. Your work could establish foundational knowledge - future NOVUS versions will enhance support for novel research areas.');
+        setError('Minimal evidence extracted. This disease may have limited documented molecular targets. Try refining the literature or adding more sources.');
       }
 
       setRelations(savedRelations);
@@ -235,11 +263,65 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
     }
   };
 
+  const runAlphaFoldForGene = useCallback(async (geneName, relationId) => {
+    if (!geneName || geneName === 'N/A') return;
+    const upperGene = geneName.toUpperCase();
+
+    const cached = getCachedAlphaFold(geneName);
+    if (cached && cached.status === 'completed') {
+      setAfResults(prev => ({ ...prev, [upperGene]: cached }));
+      return;
+    }
+
+    setAfLoading(prev => ({ ...prev, [upperGene]: true }));
+    setAfError(prev => ({ ...prev, [upperGene]: null }));
+
+    try {
+      const result = await Core.RunAlphaFold({ geneName });
+      if (result.status === 'completed') {
+        setCachedAlphaFold(geneName, result);
+        setAfResults(prev => ({ ...prev, [upperGene]: result }));
+      } else {
+        setAfError(prev => ({ ...prev, [upperGene]: result.error || 'AlphaFold did not complete in time.' }));
+      }
+    } catch (err) {
+      console.error('AlphaFold error:', err);
+      setAfError(prev => ({ ...prev, [upperGene]: err.message || 'AlphaFold prediction failed.' }));
+    } finally {
+      setAfLoading(prev => ({ ...prev, [upperGene]: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const preloaded = {};
+    for (const rel of relations) {
+      if (rel.gene && rel.gene !== 'N/A' && rel.status === 'valid') {
+        const cached = getCachedAlphaFold(rel.gene);
+        if (cached && cached.status === 'completed') {
+          preloaded[rel.gene.toUpperCase()] = cached;
+        }
+      }
+    }
+    if (Object.keys(preloaded).length > 0) {
+      setAfResults(prev => ({ ...prev, ...preloaded }));
+    }
+  }, [relations]);
+
   const updateStatus = async (relationId, status) => {
     await Relation.update(relationId, { status });
     setRelations(prev =>
       prev.map(r => r.id === relationId ? { ...r, status } : r)
     );
+
+    if (status === 'valid') {
+      const rel = relations.find(r => r.id === relationId);
+      if (rel?.gene && rel.gene !== 'N/A') {
+        const upper = rel.gene.toUpperCase();
+        if (!afResults[upper] && !afLoading[upper]) {
+          runAlphaFoldForGene(rel.gene, relationId);
+        }
+      }
+    }
   };
 
   const getStatusColor = (status) => {
@@ -359,8 +441,7 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
 
                       <div className="mt-4 pt-4 border-t border-slate-700">
                         <p className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-slate-600'}`}>
-                          <strong>Future Capabilities:</strong> The knowledge graph will expand to include pathways, biomarkers, variants, tissue expression, 
-                          AI-predicted relationships (shown as dashed lines), and multi-view navigation (disease-centric, gene-centric, pathway-centric views).
+                          <strong>Tip:</strong> Validate more relationships to build a richer knowledge graph. The graph includes drug-gene interactions, disease associations, and protein targets from Open Targets and UniProt.
                         </p>
                       </div>
                     </div>
@@ -532,8 +613,7 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
                   </div>
                   <div className={`mt-4 p-3 rounded-lg text-xs ${theme === 'dark' ? 'bg-slate-900/50' : 'bg-slate-100'}`}>
                     <p className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>
-                      <strong>Coming Soon:</strong> Click edges to view evidence • Add feedback and corrections • Multi-view navigation (disease-centric, gene-centric, pathway-centric) • 
-                      AI-predicted relationships shown as dashed lines • Support for 500-2000 node networks • Pathway and biomarker nodes
+                      <strong>Tip:</strong> Validate more relationships to expand the graph. Valid connections power hypothesis generation in the next stage.
                     </p>
                   </div>
                 </CardContent>
@@ -715,6 +795,69 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
                               <p className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>Loading UniProt data...</p>
                             </div>
                           )}
+
+                          {/* AlphaFold section */}
+                          {rel.gene && rel.gene !== 'N/A' && (() => {
+                            const upper = rel.gene.toUpperCase();
+                            const loading = afLoading[upper];
+                            const result = afResults[upper];
+                            const err = afError[upper];
+
+                            if (loading) {
+                              return (
+                                <div className={`rounded p-3 mt-3 ${theme === 'dark' ? 'bg-purple-900/15 border border-purple-500/20' : 'bg-purple-50 border border-purple-200'}`}>
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                                    <p className={`text-xs font-medium ${theme === 'dark' ? 'text-purple-300' : 'text-purple-600'}`}>
+                                      Running AlphaFold2 on Tamarind Bio for {rel.gene}...
+                                    </p>
+                                  </div>
+                                  <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+                                    Predicting 3D protein structure (polling every 3s, max 2 min)
+                                  </p>
+                                </div>
+                              );
+                            }
+                            if (result && result.status === 'completed') {
+                              const isDB = result.source === 'alphafold_db';
+                              return (
+                                <div className={`rounded p-3 mt-3 ${theme === 'dark' ? 'bg-purple-900/15 border border-purple-500/20' : 'bg-purple-50 border border-purple-200'}`}>
+                                  <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <Atom className="w-4 h-4 text-purple-400" />
+                                      <p className={`text-xs font-semibold ${theme === 'dark' ? 'text-purple-300' : 'text-purple-600'}`}>
+                                        {isDB ? 'AlphaFold DB' : 'AlphaFold2'} Structure — {rel.gene}
+                                      </p>
+                                      <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-xs">
+                                        {result.sequenceLength} aa
+                                      </Badge>
+                                      {isDB && (
+                                        <Badge className="bg-green-500/20 text-green-300 border-green-500/30 text-xs">
+                                          Pre-computed
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => setMolstarModal({ geneName: rel.gene, result })}
+                                      className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-xs"
+                                    >
+                                      <Eye className="w-3 h-3 mr-1" />
+                                      View 3D Structure
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            if (err) {
+                              return (
+                                <div className={`rounded p-2 mt-3 ${theme === 'dark' ? 'bg-red-900/15 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
+                                  <p className={`text-xs ${theme === 'dark' ? 'text-red-300' : 'text-red-600'}`}>AlphaFold: {err}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
 
@@ -766,6 +909,63 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
           </div>
         )}
       </div>
+
+      {/* Mol* 3D Viewer Modal */}
+      <Dialog open={!!molstarModal} onOpenChange={(open) => { if (!open) setMolstarModal(null); }}>
+        <DialogContent className={`max-w-5xl h-[80vh] flex flex-col ${
+          theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Atom className="w-5 h-5 text-purple-400" />
+              3D Protein Structure — {molstarModal?.geneName}
+            </DialogTitle>
+            <DialogDescription className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>
+              AlphaFold2 predicted structure via Tamarind Bio
+              {molstarModal?.result?.accession && (
+                <span> · UniProt {molstarModal.result.accession}</span>
+              )}
+              {molstarModal?.result?.sequenceLength && (
+                <span> · {molstarModal.result.sequenceLength} residues</span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 rounded-lg overflow-hidden border border-slate-700">
+            {molstarModal?.result?.pdbUrl ? (
+              <iframe
+                src={`https://molstar.org/viewer/?structure-url=${encodeURIComponent(molstarModal.result.pdbUrl)}&structure-url-format=pdb`}
+                className="w-full h-full border-0"
+                title={`Mol* viewer for ${molstarModal.geneName}`}
+                allow="fullscreen"
+              />
+            ) : molstarModal?.result?.accession ? (
+              <iframe
+                src={`https://molstar.org/viewer/?pdb-provider=alphafolddb&afdb=${molstarModal.result.accession}`}
+                className="w-full h-full border-0"
+                title={`Mol* viewer for ${molstarModal.geneName}`}
+                allow="fullscreen"
+              />
+            ) : (
+              <iframe
+                src="https://molstar.org/viewer/"
+                className="w-full h-full border-0"
+                title={`Mol* viewer for ${molstarModal?.geneName}`}
+                allow="fullscreen"
+              />
+            )}
+          </div>
+          <div className={`text-xs flex items-center gap-2 pt-2 flex-wrap ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+            <Atom className="w-3 h-3" />
+            Powered by Mol* · Structure from {molstarModal?.result?.source === 'alphafold_db' ? 'AlphaFold Protein Structure Database' : 'AlphaFold2 on Tamarind Bio'}
+            {molstarModal?.result?.pdbUrl && (
+              <a href={molstarModal.result.pdbUrl} target="_blank" rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 flex items-center gap-1 ml-auto">
+                Download PDB <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

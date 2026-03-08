@@ -211,19 +211,19 @@ Validates if user can proceed:
 
 ---
 
-## 🔮 Future Enhancements
+## Active Integrations
 
-### **Planned:**
-- Voice commands
-- Multi-file batch upload with drag & drop in chat
-- Conversation export
-- Suggested actions based on stage progress
-- Integration with external tools (Zotero, Mendeley)
+### **Data Sources:**
+- Open Targets Platform (disease-gene association scores)
+- UniProt (protein sequences and functional annotations)
+- PubChem (compound data, SMILES, molecular properties)
+- ClinicalTrials.gov (active clinical trial data)
+- AlphaFold Protein Structure Database (pre-computed 3D structures)
 
-### **Possible:**
-- Real-time collaboration (multiple users)
-- Custom workflows
-- API integrations (PubMed, ClinicalTrials.gov)
+### **Compute:**
+- Modal (parallel RDKit drug screening)
+- Tamarind Bio (ADMET prediction, Chai-1 molecular docking, AlphaFold2)
+- Anthropic Claude (analysis, hypothesis generation, literature synthesis)
 
 ---
 

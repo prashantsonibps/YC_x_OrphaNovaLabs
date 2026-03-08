@@ -170,7 +170,7 @@ Use the compound data to ground hypotheses in real pharmacological properties. R
       setProgress(100);
       
       if (savedHyps.length < 3) {
-        setError('💡 Limited hypotheses generated due to sparse evidence. This is uncharted territory - your research is pioneering. Continue documenting your approach, and future NOVUS updates will provide enhanced support for exploratory research.');
+        setError('Limited hypotheses generated due to sparse evidence. Try extracting and validating more relationships in the Evidence stage to improve hypothesis generation.');
       }
       
       setHypotheses(savedHyps);

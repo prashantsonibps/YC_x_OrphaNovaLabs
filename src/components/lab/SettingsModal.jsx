@@ -134,9 +134,10 @@ export default function SettingsModal({ user, onClose }) {
                     <p className="text-xs text-slate-400">Sync your research code</p>
                   </div>
                 </div>
-                <span className="text-xs text-slate-500 bg-slate-700 px-3 py-1 rounded-full">
-                  Coming Soon
-                </span>
+                <a href="https://github.com" target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-blue-400 bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-full transition-colors cursor-pointer">
+                  Connect
+                </a>
               </div>
             </div>
           </div>

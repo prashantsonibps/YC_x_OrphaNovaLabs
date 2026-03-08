@@ -156,14 +156,41 @@ exports.invokeLLM = onCall(
 // runExperiment — Tamarind Bio ADMET + Docking with Claude fallback
 // ---------------------------------------------------------------------------
 
-async function lookupSmiles(drugName) {
+const DRUG_NAME_NOISE = /\b(analog|analogue|derivative|inhibitor|agonist|antagonist|mimetic|peptide|compound|therapy|treatment|combination|based|novel|selective|potent|oral|small[\s-]molecule|recombinant|humanized|monoclonal|antibody|fusion protein)\b/gi;
+
+async function lookupSmilesExact(name) {
   const res = await fetch(
-    `${PUBCHEM_API}/compound/name/${encodeURIComponent(drugName)}/property/CanonicalSMILES,MolecularFormula,MolecularWeight,IUPACName/JSON`
+    `${PUBCHEM_API}/compound/name/${encodeURIComponent(name.trim())}/property/CanonicalSMILES,MolecularFormula,MolecularWeight,IUPACName/JSON`
   );
   if (!res.ok) return null;
   const data = await res.json();
-  const props = data?.PropertyTable?.Properties?.[0];
-  return props || null;
+  return data?.PropertyTable?.Properties?.[0] || null;
+}
+
+async function lookupSmiles(drugName) {
+  if (!drugName || drugName === 'N/A') return null;
+
+  // Try the exact name first
+  let result = await lookupSmilesExact(drugName);
+  if (result?.CanonicalSMILES) return result;
+
+  // Strip common qualifiers and retry
+  const cleaned = drugName.replace(DRUG_NAME_NOISE, '').replace(/\s+/g, ' ').trim();
+  if (cleaned && cleaned !== drugName) {
+    result = await lookupSmilesExact(cleaned);
+    if (result?.CanonicalSMILES) return result;
+  }
+
+  // Try individual words (longest first) — some names are "Drug X" where "Drug" is the real compound
+  const words = drugName.split(/[\s\-\/,]+/).filter(w => w.length > 2 && !/^\d+$/.test(w));
+  const unique = [...new Set(words.map(w => w.replace(DRUG_NAME_NOISE, '').trim()).filter(w => w.length > 2))];
+  for (const word of unique) {
+    result = await lookupSmilesExact(word);
+    if (result?.CanonicalSMILES) return result;
+  }
+
+  console.warn(`PubChem: no SMILES found for "${drugName}" (cleaned: "${cleaned}", words: [${unique.join(', ')}])`);
+  return null;
 }
 
 async function lookupProteinSequence(geneName) {
@@ -428,6 +455,278 @@ exports.runExperiment = onCall(
       admet: admetResults,
       docking: tamarindDocking,
       experiment_title: experimentTitle || '',
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// runAlphaFold — Tamarind Bio AlphaFold2 structure prediction
+// ---------------------------------------------------------------------------
+
+async function checkAlphaFoldDB(accession) {
+  // AlphaFold DB stores pre-computed structures for most UniProt proteins
+  const url = `https://alphafold.ebi.ac.uk/api/prediction/${accession}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const entry = Array.isArray(data) ? data[0] : data;
+  if (!entry?.pdbUrl) return null;
+  return {
+    pdbUrl: entry.pdbUrl,
+    cifUrl: entry.cifUrl || null,
+    paeImageUrl: entry.paeImageUrl || null,
+    modelCreatedDate: entry.modelCreatedDate || null,
+    uniprotId: entry.uniprotId || accession,
+    latestVersion: entry.latestVersion || null,
+  };
+}
+
+exports.runAlphaFold = onCall(
+  {
+    region: 'us-central1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async (request) => {
+    const { geneName, sequence } = request.data || {};
+
+    if (!sequence && !geneName) {
+      throw new HttpsError('invalid-argument', 'sequence or geneName is required.');
+    }
+
+    // Step 1: Look up protein metadata from UniProt
+    let proteinMeta = null;
+    if (geneName) {
+      try {
+        proteinMeta = await lookupProteinSequence(geneName);
+      } catch (err) {
+        console.warn('UniProt lookup failed:', err.message);
+      }
+    }
+
+    if (!proteinMeta && !sequence) {
+      throw new HttpsError('not-found', `Could not find protein for gene "${geneName}" on UniProt.`);
+    }
+
+    const accession = proteinMeta?.accession;
+    const proteinSeq = sequence || proteinMeta?.sequence;
+
+    // Step 2: Check AlphaFold DB (instant — pre-computed structures for ~200M proteins)
+    if (accession) {
+      try {
+        const afdb = await checkAlphaFoldDB(accession);
+        if (afdb) {
+          console.log(`AlphaFold DB hit for ${accession} (${geneName})`);
+          return {
+            status: 'completed',
+            source: 'alphafold_db',
+            geneName: geneName || null,
+            accession,
+            proteinName: proteinMeta?.protein_name || null,
+            sequenceLength: proteinSeq?.length || proteinMeta?.length || 0,
+            pdbUrl: afdb.pdbUrl,
+            cifUrl: afdb.cifUrl,
+            paeImageUrl: afdb.paeImageUrl,
+            modelCreatedDate: afdb.modelCreatedDate,
+          };
+        }
+      } catch (err) {
+        console.warn('AlphaFold DB check failed:', err.message);
+      }
+    }
+
+    // Step 3: Fall back to Tamarind Bio AlphaFold2 for novel sequences
+    const tamarindKey = process.env.TAMARIND_API_KEY;
+    if (!tamarindKey) {
+      throw new HttpsError('failed-precondition', 'No pre-computed structure found and TAMARIND_API_KEY is not set.');
+    }
+
+    if (!proteinSeq) {
+      throw new HttpsError('not-found', `No sequence available for gene "${geneName}".`);
+    }
+
+    const ts = Date.now();
+    const jobName = `orphanova_af2_${geneName || 'seq'}_${ts}`;
+
+    await tamarindSubmit(tamarindKey, 'alphafold', {
+      sequence: proteinSeq,
+      numModels: '1',
+      numRecycles: 3,
+      useMSA: false,
+    }, jobName);
+
+    const pollResult = await tamarindPollUntilDone(tamarindKey, jobName, 120000);
+
+    if (pollResult.status === 'completed') {
+      const result = await tamarindGetResult(tamarindKey, jobName);
+      return {
+        status: 'completed',
+        source: 'tamarind_alphafold2',
+        geneName: geneName || null,
+        accession: accession || null,
+        proteinName: proteinMeta?.protein_name || null,
+        sequenceLength: proteinSeq.length,
+        jobName,
+        result,
+      };
+    }
+
+    if (pollResult.status === 'failed') {
+      return { status: 'failed', geneName, jobName, error: 'AlphaFold job failed on Tamarind.' };
+    }
+
+    return { status: 'timeout', geneName, jobName, error: 'AlphaFold job timed out (2 min). It may still be running on Tamarind.' };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// screenDrugsModal — Parallel drug screening via Modal (RDKit QED + Lipinski)
+// ---------------------------------------------------------------------------
+
+async function claudeResolveSMILES(anthropic, drugNames) {
+  const modelCandidates = getModelCandidates(true);
+  const prompt = `You are a medicinal chemistry expert. For each drug/compound name below, provide the canonical SMILES string. If the name is a class (e.g. "HDAC inhibitor") use the most well-known representative compound. If the name is too vague or not a real compound, provide the closest real FDA-approved or clinical-stage drug.
+
+Drug names:
+${drugNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
+
+Return ONLY valid JSON matching this schema:
+${JSON.stringify({
+  type: "object",
+  properties: {
+    drugs: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          input_name: { type: "string" },
+          resolved_name: { type: "string" },
+          smiles: { type: "string" },
+        }
+      }
+    }
+  }
+})}`;
+
+  for (const model of modelCandidates) {
+    try {
+      const response = await anthropic.messages.create({
+        model,
+        max_tokens: 2048,
+        temperature: 0.1,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const rawText = extractTextContent(response.content);
+      const parsed = parseJsonSafe(rawText);
+      return parsed?.drugs || [];
+    } catch (err) {
+      if (isModelNotFoundError(err)) continue;
+      throw err;
+    }
+  }
+  return [];
+}
+
+exports.screenDrugsModal = onCall(
+  {
+    region: 'us-central1',
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async (request) => {
+    const { drugNames } = request.data || {};
+    if (!Array.isArray(drugNames) || drugNames.length === 0) {
+      throw new HttpsError('invalid-argument', 'drugNames must be a non-empty array.');
+    }
+
+    const modalEndpoint = process.env.MODAL_ENDPOINT;
+    if (!modalEndpoint) {
+      throw new HttpsError(
+        'failed-precondition',
+        'MODAL_ENDPOINT is not configured. Deploy modal_app.py and set the URL in functions/.env.'
+      );
+    }
+
+    const uniqueDrugs = [...new Set(drugNames.filter(n => n && n !== 'N/A'))];
+    if (uniqueDrugs.length === 0) {
+      throw new HttpsError('invalid-argument', 'No valid drug names provided.');
+    }
+
+    console.log('screenDrugsModal: incoming drug names:', uniqueDrugs);
+
+    // Layer 1: Try PubChem for each drug in parallel
+    const pubchemLookups = await Promise.allSettled(
+      uniqueDrugs.map(async (name) => {
+        try {
+          const data = await lookupSmiles(name);
+          return { name, smiles: data?.CanonicalSMILES || null };
+        } catch {
+          return { name, smiles: null };
+        }
+      })
+    );
+
+    const resolved = {};
+    const unresolved = [];
+    for (const r of pubchemLookups) {
+      if (r.status === 'fulfilled' && r.value.smiles) {
+        resolved[r.value.name] = r.value.smiles;
+      } else if (r.status === 'fulfilled') {
+        unresolved.push(r.value.name);
+      }
+    }
+
+    console.log(`PubChem resolved ${Object.keys(resolved).length}/${uniqueDrugs.length}, unresolved: [${unresolved.join(', ')}]`);
+
+    // Layer 2: Ask Claude to resolve remaining drug names to SMILES
+    if (unresolved.length > 0) {
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (anthropicKey) {
+        try {
+          const anthropic = new Anthropic({ apiKey: anthropicKey });
+          const claudeResults = await claudeResolveSMILES(anthropic, unresolved);
+          for (const cr of claudeResults) {
+            if (cr.smiles && cr.smiles.length > 2 && cr.smiles !== 'N/A') {
+              const origName = cr.input_name || cr.resolved_name;
+              resolved[origName] = cr.smiles;
+              console.log(`Claude resolved "${origName}" → "${cr.resolved_name}" (${cr.smiles.slice(0, 40)}...)`);
+            }
+          }
+        } catch (err) {
+          console.warn('Claude SMILES resolution failed:', err.message);
+        }
+      }
+    }
+
+    const drugs = Object.entries(resolved).map(([name, smiles]) => ({ name, smiles }));
+
+    if (drugs.length === 0) {
+      throw new HttpsError(
+        'not-found',
+        `Could not resolve SMILES for any of ${uniqueDrugs.length} drugs: [${uniqueDrugs.join(', ')}]. Try using specific compound names in evidence extraction.`
+      );
+    }
+
+    console.log(`Sending ${drugs.length} drugs to Modal for screening`);
+
+    // Call Modal web endpoint for parallel screening
+    const res = await fetch(modalEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(drugs),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('Modal screening error:', res.status, errText);
+      throw new HttpsError('internal', `Modal screening failed (${res.status}): ${errText.slice(0, 200)}`);
+    }
+
+    const result = await res.json();
+    return {
+      ...result,
+      drugs_submitted: drugs.length,
+      drugs_requested: uniqueDrugs.length,
     };
   }
 );

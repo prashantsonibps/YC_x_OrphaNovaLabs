@@ -400,7 +400,7 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
                   </div>
 
                   <p className={`text-sm italic mt-4 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
-                    More activity tracking coming soon...
+                    Activity is tracked across all research stages.
                   </p>
                 </div>
               </div>

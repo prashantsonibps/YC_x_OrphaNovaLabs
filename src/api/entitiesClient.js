@@ -5,6 +5,16 @@ function safeSet(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 }
 
+// Migrate legacy storage key
+(function migrateProjectsKey() {
+  const OLD = 'mock_projects', NEW = 'orphanova_projects';
+  const old = safeGet(OLD);
+  if (old.length > 0 && safeGet(NEW).length === 0) {
+    safeSet(NEW, old);
+    try { localStorage.removeItem(OLD); } catch {}
+  }
+})();
+
 function makeEntity(storageKey) {
   let _items = safeGet(storageKey);
 
@@ -66,7 +76,7 @@ export const entities = {
   CollaborationPost:     makeEntity('orphanova_collaboration_posts'),
   ConnectionRequest:     makeEntity('orphanova_connection_requests'),
   IntegrationSuggestion: makeEntity('orphanova_integration_suggestions'),
-  Project:               makeEntity('mock_projects'),
+  Project:               makeEntity('orphanova_projects'),
   Literature:            makeEntity('orphanova_literature'),
   Relation:              makeEntity('orphanova_relations'),
   Hypothesis:            makeEntity('orphanova_hypotheses'),

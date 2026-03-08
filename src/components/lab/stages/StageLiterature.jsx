@@ -108,7 +108,7 @@ Return a JSON array of 8-12 papers with: title, abstract (150 words), authors, s
       
       // Check if very limited results
       if (savedLit.length < 3) {
-        setError('⚠️ Limited literature found. This appears to be a highly novel research area. Document your findings carefully - future NOVUS updates will better support pioneering research.');
+        setError('Limited literature found. This appears to be a highly novel research area. Try broader search terms or check spelling.');
       }
       
       setLiterature(savedLit);
