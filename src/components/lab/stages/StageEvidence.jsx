@@ -558,64 +558,22 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
               </Button>
             </div>
 
-            {showGraph && validCount > 0 && (
+            {showGraph && (
               <Card className={`mb-6 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200 shadow-sm'}`}>
-                <CardContent className="p-6">
-                  <div className="mb-4 flex items-start gap-3">
-                    <Info className={`w-5 h-5 mt-0.5 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`} />
-                    <div className="flex-1">
-                      <h4 className={`font-semibold mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                        Interactive Knowledge Graph
-                      </h4>
-                      <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                        This visualization shows your validated disease-gene-drug network. Each node represents an entity, and lines show relationships with evidence support. 
-                        This graph will grow as you validate more relationships and will power AI-driven hypothesis generation in the next stage.
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <a
-                          href="https://neo4j.com/product/bloom/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                        >
-                          Similar to Neo4j Bloom <ExternalLink className="w-3 h-3" />
-                        </a>
-                        <span className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>•</span>
-                        <a
-                          href="https://en.wikipedia.org/wiki/Knowledge_graph"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                        >
-                          Learn about Knowledge Graphs <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-                    </div>
+                <CardContent className="p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className={`font-semibold flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      <Database className={`w-4 h-4 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                      Knowledge Graph
+                      <span className={`text-xs font-normal ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                        — click a gene node to highlight its connections
+                      </span>
+                    </h4>
                   </div>
-                  <div className="h-96">
-                    <KnowledgeGraphScientific 
-                      relations={relations.filter(r => r.status === 'valid')}
-                      onAddToPaper={async (imageUrl) => {
-                        const drafts = await Draft.filter({ project_id: project.id });
-                        if (drafts.length > 0) {
-                          const figures = drafts[0].figures || [];
-                          figures.push({
-                            url: imageUrl,
-                            caption: 'Disease-gene-drug interaction network showing validated relationships from evidence extraction.'
-                          });
-                          await Draft.update(drafts[0].id, { figures });
-                          alert('✅ Knowledge graph added to paper draft!');
-                        } else {
-                          alert('⚠️ Please generate a paper draft first (Stage 6) before adding figures.');
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className={`mt-4 p-3 rounded-lg text-xs ${theme === 'dark' ? 'bg-slate-900/50' : 'bg-slate-100'}`}>
-                    <p className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>
-                      <strong>Tip:</strong> Validate more relationships to expand the graph. Valid connections power hypothesis generation in the next stage.
-                    </p>
-                  </div>
+                  <KnowledgeGraphScientific
+                    relations={relations}
+                    diseaseName={project.disease_name}
+                  />
                 </CardContent>
               </Card>
             )}
