@@ -27,7 +27,10 @@ export const Core = {
     } catch (error) {
       const rawMessage = error?.message || '';
       const code = error?.code || '';
-      const details = typeof error?.details === 'string' ? error.details : '';
+      const detailsRaw = error?.details;
+      const details = typeof detailsRaw === 'string'
+        ? detailsRaw
+        : (detailsRaw?.providerMessage || '');
       const combined = `${code} ${rawMessage} ${details}`.toLowerCase();
 
       let message = rawMessage || 'InvokeLLM failed';
