@@ -31,7 +31,7 @@ export default function StageExperiments({ project, onComplete }) {
         status: 'approved'
       });
 
-      const hypContext = approvedHyps.map(h => `${h.title}: ${h.description.slice(0, 200)}...`).join('\n\n');
+      const hypContext = approvedHyps.map(h => `${h.title}: ${(h.description || '').slice(0, 200)}...`).join('\n\n');
 
       const result = await Core.InvokeLLM({
         prompt: `Suggest 5-7 validation experiments for these hypotheses about ${project.disease_name}:

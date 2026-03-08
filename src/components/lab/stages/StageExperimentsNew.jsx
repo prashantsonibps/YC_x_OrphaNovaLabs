@@ -66,7 +66,7 @@ export default function StageExperiments({ project, onComplete }) {
         status: 'approved'
       });
 
-      const hypContext = approvedHyps.map(h => `${h.title}: ${h.description.slice(0, 200)}...`).join('\n\n');
+      const hypContext = approvedHyps.map(h => `${h.title}: ${(h.description || '').slice(0, 200)}...`).join('\n\n');
 
       const result = await Core.InvokeLLM({
         prompt: `Design 5-7 cutting-edge validation experiments for ${project.disease_name}:

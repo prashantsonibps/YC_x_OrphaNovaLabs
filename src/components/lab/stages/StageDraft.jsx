@@ -172,7 +172,7 @@ Hypotheses: ${hypotheses.map(h => h.title).join(', ')}
 ${context}
 
 Approved Hypotheses:
-${hypotheses.map(h => `- ${h.title}: ${h.description.substring(0, 150)}...`).join('\n')}
+${hypotheses.map(h => `- ${h.title}: ${(h.description || '').substring(0, 150)}...`).join('\n')}
 
 CRITICAL REQUIREMENTS - You MUST generate ALL 8 sections with FULL, DETAILED content:
 
@@ -205,7 +205,7 @@ Each section MUST be complete, detailed, and directly address the research quest
 ${context}
 
 Approved Hypotheses:
-${hypotheses.map(h => `- ${h.title}: ${h.description.substring(0, 150)}...`).join('\n')}
+${hypotheses.map(h => `- ${h.title}: ${(h.description || '').substring(0, 150)}...`).join('\n')}
 
 CRITICAL REQUIREMENTS - You MUST generate ALL 8 sections with FULL, DETAILED content:
 
