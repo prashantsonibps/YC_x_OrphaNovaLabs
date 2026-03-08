@@ -9,6 +9,58 @@ import { useTheme } from '../../ThemeContext';
 import { Core } from '@/api/integrationsClient';
 import KnowledgeGraphScientific from '../visualizations/KnowledgeGraphScientific';
 
+const OT_API = 'https://api.platform.opentargets.org/api/v4/graphql';
+
+async function fetchOpenTargetsScore(diseaseName, geneName) {
+  if (!diseaseName || !geneName || geneName === 'N/A') return null;
+  try {
+    const diseaseRes = await fetch(OT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query { search(queryString: "${diseaseName}", entityNames: ["disease"], page: { size: 1, index: 0 }) { hits { id name entity } } }`
+      })
+    });
+    const diseaseData = await diseaseRes.json();
+    const diseaseHit = diseaseData?.data?.search?.hits?.[0];
+    if (!diseaseHit || diseaseHit.entity !== 'disease') return null;
+    const diseaseId = diseaseHit.id;
+
+    const geneRes = await fetch(OT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query { search(queryString: "${geneName}", entityNames: ["target"], page: { size: 1, index: 0 }) { hits { id name entity } } }`
+      })
+    });
+    const geneData = await geneRes.json();
+    const geneHit = geneData?.data?.search?.hits?.[0];
+    if (!geneHit || geneHit.entity !== 'target') return null;
+    const targetId = geneHit.id;
+
+    const assocRes = await fetch(OT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query {
+          disease(efoId: "${diseaseId}") {
+            associatedTargets(page: { size: 500, index: 0 }) {
+              rows { target { id approvedSymbol } score }
+            }
+          }
+        }`
+      })
+    });
+    const assocData = await assocRes.json();
+    const rows = assocData?.data?.disease?.associatedTargets?.rows ?? [];
+    const match = rows.find(r => r.target?.id === targetId);
+    return match ? match.score : 0;
+  } catch (err) {
+    console.warn('OpenTargets lookup failed:', err);
+    return null;
+  }
+}
+
 export default function StageEvidence({ project, onComplete }) {
   const { theme } = useTheme();
   const [extracting, setExtracting] = useState(false);
@@ -38,6 +90,23 @@ export default function StageEvidence({ project, onComplete }) {
     try {
       const existing = await Relation.filter({ project_id: project.id });
       setRelations(existing);
+
+      const needsScore = existing.filter(r => r.ot_score === null || r.ot_score === undefined);
+      if (needsScore.length > 0) {
+        (async () => {
+          const updated = [...existing];
+          for (let i = 0; i < updated.length; i++) {
+            const r = updated[i];
+            if (r.ot_score !== null && r.ot_score !== undefined) continue;
+            const score = await fetchOpenTargetsScore(r.disease, r.gene);
+            if (score !== null) {
+              updated[i] = { ...r, ot_score: score };
+              await Relation.update(r.id, { ot_score: score });
+            }
+          }
+          setRelations([...updated]);
+        })();
+      }
     } catch (error) {
       console.error('Error loading relations:', error);
     }
@@ -104,6 +173,7 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
           project_id: project.id,
           ...rel,
           status: 'uncertain',
+          ot_score: null,
           citation_ids: selectedLit.map(l => l.id)
         });
         savedRelations.push(created);
@@ -112,13 +182,26 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
       clearInterval(progressInterval);
       setProgress(100);
       setTimeRemaining(0);
-      
-      // Check if minimal evidence found
+
       if (savedRelations.length < 2) {
         setError('🔬 Minimal evidence extracted. This disease may be under-researched. Your work could establish foundational knowledge - future NOVUS versions will enhance support for novel research areas.');
       }
-      
+
       setRelations(savedRelations);
+
+      // Fetch Open Targets scores in background (non-blocking)
+      (async () => {
+        const updated = [...savedRelations];
+        for (let i = 0; i < updated.length; i++) {
+          const r = updated[i];
+          const score = await fetchOpenTargetsScore(r.disease, r.gene);
+          if (score !== null) {
+            updated[i] = { ...r, ot_score: score };
+            await Relation.update(r.id, { ot_score: score });
+          }
+        }
+        setRelations([...updated]);
+      })();
       setRetryCount(0);
     } catch (error) {
       console.error('Extraction error:', error);
@@ -447,12 +530,27 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-3">
+                          <div className="flex items-center gap-2 mb-3 flex-wrap">
                             <Badge className={getStatusColor(rel.status)}>
                               {rel.status.toUpperCase()}
                             </Badge>
                             <Badge variant="outline" className="border-cyan-500/30 text-cyan-300">
                               {rel.confidence}% confidence
+                            </Badge>
+                            <Badge variant="outline" className={
+                              rel.ot_score === null || rel.ot_score === undefined
+                                ? 'border-slate-500/30 text-slate-400'
+                                : rel.ot_score >= 0.5
+                                  ? 'border-emerald-500/30 text-emerald-300'
+                                  : rel.ot_score > 0
+                                    ? 'border-amber-500/30 text-amber-300'
+                                    : 'border-slate-500/30 text-slate-400'
+                            }>
+                              OpenTargets: {rel.ot_score === null || rel.ot_score === undefined
+                                ? '...'
+                                : rel.ot_score === 0
+                                  ? 'No match'
+                                  : rel.ot_score.toFixed(2)}
                             </Badge>
                           </div>
 
