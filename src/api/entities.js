@@ -34,6 +34,6 @@ export const NotificationRead = entities.NotificationRead;
 
 
 
-// auth sdk:
-import { auth as User } from './authClient';
-export { User };
+export const User = entities.User;
+
+export { auth as Auth } from './authClient';

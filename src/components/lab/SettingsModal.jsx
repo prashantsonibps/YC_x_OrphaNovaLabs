@@ -14,7 +14,7 @@ export default function SettingsModal({ user, onClose }) {
     enterprise: { name: 'Enterprise', color: 'gold' }
   };
 
-  const currentPlan = user?.plan || 'free';
+  const currentPlan = (user?.plan && plans[user.plan]) ? user.plan : 'free';
 
   return (
     <motion.div

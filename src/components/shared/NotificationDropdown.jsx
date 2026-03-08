@@ -13,15 +13,13 @@ export default function NotificationDropdown({ user, theme, onClose }) {
   }, [user]);
 
   const loadNotifications = async () => {
-    // Get all active notifications
+    if (!user) return;
     const allNotifs = await Notification.filter({ is_active: true }, '-created_date');
     
-    // Get user's read notifications
-    const readNotifs = await NotificationRead.filter({ user_email: user.email });
+    const readNotifs = await NotificationRead.filter({ user_email: user.email || '' });
     const readIds = new Set(readNotifs.map(r => r.notification_id));
     
-    // Check if user just signed up (within last 24 hours)
-    const userCreatedDate = new Date(user.created_date);
+    const userCreatedDate = user.created_date ? new Date(user.created_date) : new Date();
     const isNewUser = (Date.now() - userCreatedDate.getTime()) < 24 * 60 * 60 * 1000;
     
     // Filter notifications based on target audience

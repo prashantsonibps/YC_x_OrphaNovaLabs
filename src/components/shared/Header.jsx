@@ -19,7 +19,6 @@ export default function Header({ user, onUserUpdate, projectName, onProjectNameC
   const [unreadCount, setUnreadCount] = useState(0);
 
   const handleUserUpdate = async (updatedUser) => {
-    setUser(updatedUser);
     if (onUserUpdate) {
       onUserUpdate(updatedUser);
     }
@@ -53,12 +52,13 @@ export default function Header({ user, onUserUpdate, projectName, onProjectNameC
   }, [user]);
 
   const loadUnreadCount = async () => {
+    if (!user) return;
     try {
       const notifications = await Notification.filter({ is_active: true });
-      const readNotifs = await NotificationRead.filter({ user_email: user.email });
+      const readNotifs = await NotificationRead.filter({ user_email: user.email || '' });
       const readIds = readNotifs.map(r => r.notification_id);
       
-      const userCreatedDate = new Date(user.created_date);
+      const userCreatedDate = user.created_date ? new Date(user.created_date) : new Date();
       const isNewUser = (Date.now() - userCreatedDate.getTime()) < 24 * 60 * 60 * 1000;
       
       const filtered = notifications.filter(notif => {

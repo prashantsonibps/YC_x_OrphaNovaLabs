@@ -531,7 +531,7 @@ Provide specific, actionable feedback with severity ratings. Identify strengths 
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2 mb-3">
-                          {reviewer.expertise.map((exp, i) => (
+                          {(reviewer.expertise ?? []).map((exp, i) => (
                             <span
                               key={i}
                               className={`px-2 py-1 rounded text-xs ${

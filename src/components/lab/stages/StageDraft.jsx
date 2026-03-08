@@ -167,68 +167,60 @@ Hypotheses: ${hypotheses.map(h => h.title).join(', ')}
       
       if (selectedFormat === 'grant') {
         // Grant proposal format
-        promptText = `Generate a COMPLETE NIH-style grant proposal for rare disease research:
+        promptText = `Generate a grant proposal for rare disease research. Be concise but thorough.
 
 ${context}
 
-Approved Hypotheses:
-${hypotheses.map(h => `- ${h.title}: ${(h.description || '').substring(0, 150)}...`).join('\n')}
+Hypotheses: ${hypotheses.map(h => h.title).join('; ')}
 
-CRITICAL REQUIREMENTS - You MUST generate ALL 8 sections with FULL, DETAILED content:
-
-1. title: Compelling project title that captures innovation (80-120 characters)
-2. summary: Executive summary of the entire proposal (200-250 words covering aims, significance, approach, expected outcomes)
-3. specific_aims: 3-5 specific, measurable research aims with clear objectives (500-600 words with numbered aims, each with hypothesis and expected outcome)
-4. significance: Why this research matters - disease burden, knowledge gaps, potential impact (700-800 words covering: problem, current state, long-term goals, expected contributions)
-5. innovation: Novel aspects of approach, concepts, methods, technologies (500-600 words explaining what makes this unique and transformative)
-6. approach: Detailed research plan with preliminary data, methodology, experimental design, data analysis, potential problems and solutions (1200-1500 words organized by aim, with timelines)
-7. budget_justification: Detailed budget reasoning for personnel, equipment, supplies (400-500 words explaining costs and necessity)
-8. references: 15-20 properly formatted citations relevant to the proposal
-
-Each section MUST be complete, detailed, and directly address the research question. NO placeholders or brief summaries.`;
+Generate JSON with these fields:
+- title: project title
+- summary: 150-word executive summary
+- specific_aims: 3 numbered research aims (200 words)
+- significance: why this matters (200 words)
+- innovation: novel aspects (150 words)
+- approach: research plan (300 words)
+- budget_justification: budget reasoning (100 words)
+- references: 8-10 formatted citations`;
 
         schemaProperties = {
-          title: { type: "string", minLength: 80 },
-          summary: { type: "string", minLength: 1000 },
-          specific_aims: { type: "string", minLength: 2500 },
-          significance: { type: "string", minLength: 3500 },
-          innovation: { type: "string", minLength: 2500 },
-          approach: { type: "string", minLength: 6000 },
-          budget_justification: { type: "string", minLength: 2000 },
-          references: { type: "string", minLength: 800 }
+          title: { type: "string" },
+          summary: { type: "string" },
+          specific_aims: { type: "string" },
+          significance: { type: "string" },
+          innovation: { type: "string" },
+          approach: { type: "string" },
+          budget_justification: { type: "string" },
+          references: { type: "string" }
         };
         requiredFields = ["title", "summary", "specific_aims", "significance", "innovation", "approach", "budget_justification", "references"];
       } else {
         // Research paper format (arXiv, Nature, Cell)
-        promptText = `Generate a COMPLETE scientific research paper for rare disease research:
+        promptText = `Generate a scientific research paper for rare disease research. Be concise but thorough.
 
 ${context}
 
-Approved Hypotheses:
-${hypotheses.map(h => `- ${h.title}: ${(h.description || '').substring(0, 150)}...`).join('\n')}
+Hypotheses: ${hypotheses.map(h => h.title).join('; ')}
 
-CRITICAL REQUIREMENTS - You MUST generate ALL 8 sections with FULL, DETAILED content:
-
-1. title: Clear, descriptive scientific title (80-120 characters capturing main finding)
-2. abstract: Complete structured abstract with background, methods, results, conclusions (250-300 words)
-3. introduction: Full background covering disease context, current knowledge, research gap, study objectives (700-900 words with proper citations)
-4. methods: Comprehensive methodology covering study design, data collection, analysis methods, statistical approaches, validation (800-1000 words with subsections)
-5. results: Detailed findings with specific data, statistics, trends, supporting evidence (900-1200 words organized by research question)
-6. discussion: Thorough interpretation covering main findings, comparison with literature, limitations, implications, future directions (800-1000 words)
-7. conclusion: Complete summary of key findings, contributions, and significance (300-400 words)
-8. references: 15-20 properly formatted scientific citations in author-year format
-
-Each section MUST be publication-ready with full detail. NO brief summaries or outlines - write complete, flowing paragraphs as they would appear in a published paper.`;
+Generate JSON with these fields:
+- title: descriptive scientific title
+- abstract: structured abstract (200 words)
+- introduction: background and objectives (300 words)
+- methods: methodology and approach (300 words)
+- results: key findings (300 words)
+- discussion: interpretation and implications (300 words)
+- conclusion: summary of contributions (100 words)
+- references: 8-10 formatted citations`;
 
         schemaProperties = {
-          title: { type: "string", minLength: 80 },
-          abstract: { type: "string", minLength: 1200 },
-          introduction: { type: "string", minLength: 3500 },
-          methods: { type: "string", minLength: 4000 },
-          results: { type: "string", minLength: 4500 },
-          discussion: { type: "string", minLength: 4000 },
-          conclusion: { type: "string", minLength: 1500 },
-          references: { type: "string", minLength: 800 }
+          title: { type: "string" },
+          abstract: { type: "string" },
+          introduction: { type: "string" },
+          methods: { type: "string" },
+          results: { type: "string" },
+          discussion: { type: "string" },
+          conclusion: { type: "string" },
+          references: { type: "string" }
         };
         requiredFields = ["title", "abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"];
       }
@@ -319,7 +311,12 @@ Provide 3 specific suggestions for improvement focusing on clarity, scientific r
         }
       });
       
-      alert(`AI Suggestions:\n\n${result.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n\n')}`);
+      const suggestions = result?.suggestions ?? [];
+      if (suggestions.length > 0) {
+        alert(`AI Suggestions:\n\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n\n')}`);
+      } else {
+        alert('No suggestions returned. Try again.');
+      }
     } catch (error) {
       console.error('Suggestion error:', error);
     } finally {
@@ -1236,7 +1233,7 @@ ${stripHtml(content.references || 'No references provided.')}
                             }}
                           />
                         </div>
-                        <style jsx global>{`
+                        <style>{`
                           .quill-dark .ql-toolbar {
                             background: #1e293b;
                             border-color: #334155 !important;

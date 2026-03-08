@@ -85,8 +85,8 @@ function mapProviderError(error) {
 exports.invokeLLM = onCall(
   {
     region: 'us-central1',
-    timeoutSeconds: 120,
-    memory: '512MiB',
+    timeoutSeconds: 540,
+    memory: '1GiB',
   },
   async (request) => {
     const { prompt, response_json_schema, add_context_from_internet } = request.data || {};
@@ -120,7 +120,7 @@ exports.invokeLLM = onCall(
         try {
           const response = await anthropic.messages.create({
             model,
-            max_tokens: useStructuredOutput ? 4000 : 1500,
+            max_tokens: useStructuredOutput ? 8192 : 2048,
             temperature: useStructuredOutput ? 0.2 : 0.6,
             messages: [{ role: 'user', content: fullPrompt }],
           });
