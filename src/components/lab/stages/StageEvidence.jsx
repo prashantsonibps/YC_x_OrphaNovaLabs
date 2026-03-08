@@ -10,6 +10,39 @@ import { Core } from '@/api/integrationsClient';
 import KnowledgeGraphScientific from '../visualizations/KnowledgeGraphScientific';
 
 const OT_API = 'https://api.platform.opentargets.org/api/v4/graphql';
+const UNIPROT_API = 'https://rest.uniprot.org/uniprotkb/search';
+
+async function fetchUniProtData(geneName) {
+  if (!geneName || geneName === 'N/A') return null;
+  try {
+    const res = await fetch(
+      `${UNIPROT_API}?query=gene_exact:${encodeURIComponent(geneName)}+AND+organism_id:9606&format=json&size=1`
+    );
+    const data = await res.json();
+    const entry = data?.results?.[0];
+    if (!entry) return null;
+
+    const proteinName = entry.proteinDescription?.recommendedName?.fullName?.value
+      || entry.proteinDescription?.submissionNames?.[0]?.fullName?.value || '';
+    const func = (entry.comments || []).find(c => c.commentType === 'FUNCTION');
+    const funcText = func?.texts?.[0]?.value || '';
+    const diseaseComments = (entry.comments || []).filter(c => c.commentType === 'DISEASE');
+    const diseases = diseaseComments.map(d => d.disease?.diseaseId ? `${d.disease.diseaseId}: ${d.disease.description || ''}`.slice(0, 120) : '').filter(Boolean);
+    const subcell = (entry.comments || []).find(c => c.commentType === 'SUBCELLULAR LOCATION');
+    const location = subcell?.subcellularLocations?.[0]?.location?.value || '';
+
+    return {
+      protein_name: proteinName,
+      function: funcText.slice(0, 300),
+      diseases: diseases.slice(0, 3),
+      subcellular_location: location,
+      accession: entry.primaryAccession || '',
+    };
+  } catch (err) {
+    console.warn('UniProt lookup failed:', err);
+    return null;
+  }
+}
 
 async function fetchOpenTargetsScore(diseaseName, geneName) {
   if (!diseaseName || !geneName || geneName === 'N/A') return null;
@@ -86,14 +119,22 @@ export default function StageEvidence({ project, onComplete }) {
     }
   }, [timeRemaining, extracting]);
 
-  const enrichWithOpenTargets = (rels) => {
+  const enrichRelations = (rels) => {
     for (const r of rels) {
-      if (r.ot_score !== null && r.ot_score !== undefined) continue;
-      fetchOpenTargetsScore(r.disease, r.gene).then(score => {
-        if (score === null) return;
-        Relation.update(r.id, { ot_score: score });
-        setRelations(prev => prev.map(x => x.id === r.id ? { ...x, ot_score: score } : x));
-      });
+      if (r.ot_score === null || r.ot_score === undefined) {
+        fetchOpenTargetsScore(r.disease, r.gene).then(score => {
+          if (score === null) return;
+          Relation.update(r.id, { ot_score: score });
+          setRelations(prev => prev.map(x => x.id === r.id ? { ...x, ot_score: score } : x));
+        });
+      }
+      if (!r.uniprot) {
+        fetchUniProtData(r.gene).then(data => {
+          if (!data) return;
+          Relation.update(r.id, { uniprot: data });
+          setRelations(prev => prev.map(x => x.id === r.id ? { ...x, uniprot: data } : x));
+        });
+      }
     }
   };
 
@@ -101,7 +142,7 @@ export default function StageEvidence({ project, onComplete }) {
     try {
       const existing = await Relation.filter({ project_id: project.id });
       setRelations(existing);
-      enrichWithOpenTargets(existing);
+      enrichRelations(existing);
     } catch (error) {
       console.error('Error loading relations:', error);
     }
@@ -183,7 +224,7 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
       }
 
       setRelations(savedRelations);
-      enrichWithOpenTargets(savedRelations);
+      enrichRelations(savedRelations);
       setRetryCount(0);
     } catch (error) {
       console.error('Extraction error:', error);
@@ -629,6 +670,51 @@ Return JSON with relationships array containing: disease, gene, drug, relationsh
                               "{rel.evidence}"
                             </p>
                           </div>
+
+                          {rel.uniprot && (
+                            <div className={`rounded p-3 mt-3 ${
+                              theme === 'dark' ? 'bg-indigo-900/20 border border-indigo-500/20' : 'bg-indigo-50 border border-indigo-200'
+                            }`}>
+                              <div className="flex items-center gap-2 mb-2">
+                                <p className={`text-xs font-semibold ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-600'}`}>
+                                  UniProt: {rel.uniprot.protein_name}
+                                </p>
+                                {rel.uniprot.accession && (
+                                  <a
+                                    href={`https://www.uniprot.org/uniprot/${rel.uniprot.accession}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-400 hover:text-blue-300"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                              </div>
+                              {rel.uniprot.function && (
+                                <p className={`text-xs mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                                  <strong>Function:</strong> {rel.uniprot.function}
+                                </p>
+                              )}
+                              {rel.uniprot.subcellular_location && (
+                                <p className={`text-xs mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                                  <strong>Location:</strong> {rel.uniprot.subcellular_location}
+                                </p>
+                              )}
+                              {rel.uniprot.diseases?.length > 0 && (
+                                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                                  <strong>Disease links:</strong> {rel.uniprot.diseases.join('; ')}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          {!rel.uniprot && rel.gene && rel.gene !== 'N/A' && (
+                            <div className={`rounded p-2 mt-3 flex items-center gap-2 ${
+                              theme === 'dark' ? 'bg-slate-900/30' : 'bg-slate-50'
+                            }`}>
+                              <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                              <p className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>Loading UniProt data...</p>
+                            </div>
+                          )}
                         </div>
                       </div>
 

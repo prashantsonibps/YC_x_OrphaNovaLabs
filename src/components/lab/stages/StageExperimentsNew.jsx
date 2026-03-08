@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FlaskConical, Loader2, Star, Play, Plus, TrendingUp, BarChart2, Activity } from 'lucide-react';
+import { FlaskConical, Loader2, Star, Play, Plus, TrendingUp, BarChart2, Activity, ExternalLink } from 'lucide-react';
 import { Experiment, Hypothesis } from '@/api/entities';
 import { Core } from '@/api/integrations';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,38 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTheme } from '../../ThemeContext';
 
+const CT_API = 'https://clinicaltrials.gov/api/v2/studies';
+
+async function fetchClinicalTrials(diseaseName) {
+  if (!diseaseName) return [];
+  try {
+    const res = await fetch(
+      `${CT_API}?query.cond=${encodeURIComponent(diseaseName)}&format=json&pageSize=8&sort=LastUpdatePostDate:desc`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.studies || []).map(s => {
+      const proto = s.protocolSection || {};
+      const id = proto.identificationModule || {};
+      const status = proto.statusModule || {};
+      const design = proto.designModule || {};
+      const arms = proto.armsInterventionsModule || {};
+      const interventions = (arms.interventions || []).map(i => i.name).filter(Boolean);
+      const phases = design.phases || [];
+      return {
+        nctId: id.nctId || '',
+        title: (id.briefTitle || '').slice(0, 120),
+        status: status.overallStatus || '',
+        phase: phases.join(', ') || 'N/A',
+        interventions: interventions.slice(0, 3),
+        enrollment: design.enrollmentInfo?.count || null,
+      };
+    });
+  } catch (err) {
+    console.warn('ClinicalTrials.gov lookup failed:', err);
+    return [];
+  }
+}
 
 export default function StageExperiments({ project, onComplete }) {
   const { theme } = useTheme();
@@ -20,9 +52,12 @@ export default function StageExperiments({ project, onComplete }) {
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [clinicalTrials, setClinicalTrials] = useState([]);
+  const [loadingTrials, setLoadingTrials] = useState(false);
 
   useEffect(() => {
     loadExistingExperiments();
+    loadClinicalTrials();
   }, []);
 
   // Real-time countdown
@@ -41,6 +76,18 @@ export default function StageExperiments({ project, onComplete }) {
       setExperiments(existing);
     } catch (error) {
       console.error('Error loading experiments:', error);
+    }
+  };
+
+  const loadClinicalTrials = async () => {
+    setLoadingTrials(true);
+    try {
+      const trials = await fetchClinicalTrials(project.disease_name);
+      setClinicalTrials(trials);
+    } catch (err) {
+      console.warn('Failed to load clinical trials:', err);
+    } finally {
+      setLoadingTrials(false);
     }
   };
 
@@ -68,10 +115,18 @@ export default function StageExperiments({ project, onComplete }) {
 
       const hypContext = approvedHyps.map(h => `${h.title}: ${(h.description || '').slice(0, 200)}...`).join('\n\n');
 
+      const trialsContext = clinicalTrials.length > 0
+        ? `\n\nReal clinical trials from ClinicalTrials.gov for ${project.disease_name}:\n` +
+          clinicalTrials.map(t =>
+            `- ${t.nctId}: "${t.title}" | Phase: ${t.phase} | Status: ${t.status}${t.interventions.length ? ' | Interventions: ' + t.interventions.join(', ') : ''}${t.enrollment ? ' | N=' + t.enrollment : ''}`
+          ).join('\n') +
+          '\n\nDesign experiments that complement these existing trials and fill gaps in current research.'
+        : '';
+
       const result = await Core.InvokeLLM({
         prompt: `Design 5-7 cutting-edge validation experiments for ${project.disease_name}:
 
-${hypContext}
+${hypContext}${trialsContext}
 
 For each experiment provide:
 - title
@@ -329,14 +384,17 @@ Return as JSON with detailed results.`,
                       </div>
 
                       <div className={`space-y-2 text-sm text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                        <motion.p animate={{ opacity: progress > 10 ? 1 : 0.3 }}>
-                          {progress > 10 ? '✓' : '→'} Analyzing approved hypotheses...
+                        <motion.p animate={{ opacity: progress > 8 ? 1 : 0.3 }}>
+                          {progress > 8 ? '✓' : '→'} Analyzing approved hypotheses...
                         </motion.p>
-                        <motion.p animate={{ opacity: progress > 35 ? 1 : 0.3 }}>
-                          {progress > 35 ? '✓' : '→'} Designing validation protocols...
+                        <motion.p animate={{ opacity: progress > 20 ? 1 : 0.3 }}>
+                          {progress > 20 ? '✓' : '→'} Fetching clinical trials from ClinicalTrials.gov...
                         </motion.p>
-                        <motion.p animate={{ opacity: progress > 60 ? 1 : 0.3 }}>
-                          {progress > 60 ? '✓' : '→'} Estimating resources & timeline...
+                        <motion.p animate={{ opacity: progress > 40 ? 1 : 0.3 }}>
+                          {progress > 40 ? '✓' : '→'} Designing validation protocols...
+                        </motion.p>
+                        <motion.p animate={{ opacity: progress > 65 ? 1 : 0.3 }}>
+                          {progress > 65 ? '✓' : '→'} Estimating resources & timeline...
                         </motion.p>
                         <motion.p animate={{ opacity: progress > 85 ? 1 : 0.3 }}>
                           {progress > 85 ? '✓' : '→'} Identifying biomarkers...
@@ -349,6 +407,78 @@ Return as JSON with detailed results.`,
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Related Clinical Trials */}
+        {(clinicalTrials.length > 0 || loadingTrials) && (
+          <Card className={theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200 shadow-sm'}>
+            <CardContent className="p-6">
+              <h3 className={`text-lg font-bold mb-3 flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                <FlaskConical className="w-5 h-5 text-green-400" />
+                Related Clinical Trials (ClinicalTrials.gov)
+              </h3>
+              {loadingTrials ? (
+                <div className="flex items-center gap-2 py-4">
+                  <Loader2 className="w-4 h-4 animate-spin text-green-400" />
+                  <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Searching ClinicalTrials.gov...
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {clinicalTrials.map((trial) => (
+                    <div
+                      key={trial.nctId}
+                      className={`flex items-start justify-between p-3 rounded-lg ${
+                        theme === 'dark' ? 'bg-slate-900/50' : 'bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <a
+                            href={`https://clinicaltrials.gov/study/${trial.nctId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                          >
+                            {trial.nctId} <ExternalLink className="w-3 h-3" />
+                          </a>
+                          <Badge className={
+                            trial.status === 'RECRUITING' ? 'bg-green-500/20 text-green-300 border-green-500/30' :
+                            trial.status === 'COMPLETED' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' :
+                            'bg-slate-500/20 text-slate-300 border-slate-500/30'
+                          }>
+                            {trial.status}
+                          </Badge>
+                          <Badge variant="outline" className="border-purple-500/30 text-purple-300">
+                            {trial.phase}
+                          </Badge>
+                          {trial.enrollment && (
+                            <span className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+                              N={trial.enrollment}
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-sm ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                          {trial.title}
+                        </p>
+                        {trial.interventions.length > 0 && (
+                          <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>
+                            Interventions: {trial.interventions.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {clinicalTrials.length === 0 && (
+                    <p className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                      No clinical trials found for {project.disease_name}.
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Experiments Grid - Shows after generation completes */}
         <AnimatePresence>

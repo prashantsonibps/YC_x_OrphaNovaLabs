@@ -10,6 +10,55 @@ import { useTheme } from '../../ThemeContext';
 import { Core } from '@/api/integrationsClient';
 import NotesPanel from '../NotesPanel';
 
+const PUBCHEM_API = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug';
+
+async function fetchPubChemData(drugName) {
+  if (!drugName || drugName === 'N/A' || drugName === 'unknown drug') return null;
+  try {
+    const res = await fetch(
+      `${PUBCHEM_API}/compound/name/${encodeURIComponent(drugName)}/JSON`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const compound = data?.PC_Compounds?.[0];
+    if (!compound) return null;
+
+    const cid = compound.id?.id?.cid;
+    const props = compound.props || [];
+    const getProp = (label) => props.find(p => p.urn?.label === label)?.value?.sval || '';
+    const getNumProp = (label) => props.find(p => p.urn?.label === label)?.value?.fval || null;
+
+    const mf = getProp('Molecular Formula');
+    const mw = getNumProp('Molecular Weight');
+    const iupac = getProp('IUPAC Name');
+
+    let description = '';
+    if (cid) {
+      try {
+        const descRes = await fetch(
+          `${PUBCHEM_API}/compound/cid/${cid}/description/JSON`
+        );
+        if (descRes.ok) {
+          const descData = await descRes.json();
+          const info = descData?.InformationList?.Information || [];
+          description = info.find(i => i.Description && i.Description.length > 20)?.Description || '';
+        }
+      } catch {}
+    }
+
+    return {
+      cid,
+      molecular_formula: mf,
+      molecular_weight: mw,
+      iupac_name: iupac?.slice(0, 150),
+      description: description.slice(0, 400),
+    };
+  } catch (err) {
+    console.warn('PubChem lookup failed for', drugName, err);
+    return null;
+  }
+}
+
 export default function StageHypothesis({ project, onComplete }) {
   const { theme } = useTheme();
   const [generating, setGenerating] = useState(false);
@@ -59,14 +108,31 @@ export default function StageHypothesis({ project, onComplete }) {
         `${r.disease} - ${r.gene || 'unknown gene'} - ${r.drug || 'unknown drug'}: ${r.relationship_type}`
       ).join('\n');
 
+      const uniqueDrugs = [...new Set(validRelations.map(r => r.drug).filter(d => d && d !== 'N/A' && d !== 'unknown drug'))];
+      const pubchemResults = await Promise.allSettled(uniqueDrugs.map(d => fetchPubChemData(d)));
+      const pubchemContext = uniqueDrugs.map((drug, i) => {
+        const result = pubchemResults[i];
+        if (result.status !== 'fulfilled' || !result.value) return null;
+        const d = result.value;
+        let line = `- ${drug}`;
+        if (d.molecular_formula) line += ` | Formula: ${d.molecular_formula}`;
+        if (d.molecular_weight) line += ` | MW: ${d.molecular_weight}`;
+        if (d.description) line += ` | ${d.description}`;
+        return line;
+      }).filter(Boolean).join('\n');
+
+      const pubchemSection = pubchemContext
+        ? `\n\nReal compound data from PubChem:\n${pubchemContext}`
+        : '';
+
       const result = await Core.InvokeLLM({
         prompt: `Generate 4-6 novel research hypotheses for ${project.disease_name} based on these validated relationships:
 
 ${relContext}
 
-Context: ${project.ai_context_summary}
+Context: ${project.ai_context_summary}${pubchemSection}
 
-Return JSON with hypotheses array. Each hypothesis needs: title, description (200 words), confidence (0-100), and key_relations (array of gene/drug names mentioned).`,
+Use the compound data to ground hypotheses in real pharmacological properties. Return JSON with hypotheses array. Each hypothesis needs: title, description (200 words), confidence (0-100), and key_relations (array of gene/drug names mentioned).`,
         response_json_schema: {
           type: "object",
           properties: {
@@ -221,13 +287,16 @@ Return JSON with hypotheses array. Each hypothesis needs: title, description (20
                     <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}>
                       → Analyzing validated relationships...
                     </motion.p>
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3 }}>
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }}>
+                      → Fetching compound data from PubChem...
+                    </motion.p>
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 4 }}>
                       → Finding knowledge gaps...
                     </motion.p>
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 5 }}>
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 6 }}>
                       → Generating novel hypotheses...
                     </motion.p>
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 7 }}>
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 8 }}>
                       → Computing confidence scores...
                     </motion.p>
                   </div>
