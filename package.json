@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firebase:version": "FIREBASE_SKIP_UPDATE_CHECK=true XDG_CONFIG_HOME=$HOME/.firebase-config npx firebase-tools --version",
+    "firebase:login": "FIREBASE_SKIP_UPDATE_CHECK=true XDG_CONFIG_HOME=$HOME/.firebase-config npx firebase-tools login",
+    "deploy:hosting": "npm run build && FIREBASE_SKIP_UPDATE_CHECK=true XDG_CONFIG_HOME=$HOME/.firebase-config npx firebase-tools deploy --only hosting"
   },
   "dependencies": {
     "@hookform/resolvers": "^4.1.2",
