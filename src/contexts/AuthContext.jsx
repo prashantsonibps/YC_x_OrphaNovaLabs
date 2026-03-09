@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -17,6 +17,8 @@ const ADMIN_EMAILS = [
   'prashantsonibps@gmail.com',
 ];
 
+const PROFILE_TIMEOUT_MS = 8000;
+
 const AuthContext = createContext(null);
 
 export function useAuth() {
@@ -25,37 +27,59 @@ export function useAuth() {
   return ctx;
 }
 
+function buildFallbackProfile(firebaseUser) {
+  return {
+    uid: firebaseUser.uid,
+    full_name: firebaseUser.displayName || '',
+    email: firebaseUser.email || '',
+    photo_url: firebaseUser.photoURL || null,
+    profile_picture: null,
+    role: ADMIN_EMAILS.includes(firebaseUser.email?.toLowerCase()) ? 'admin' : 'user',
+    preferences: {},
+    created_date: new Date().toISOString(),
+  };
+}
+
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Firestore timeout')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const profileLoadedRef = useRef(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
-      try {
-        if (firebaseUser) {
-          setUser(firebaseUser);
-          try {
-            const profile = await ensureUserProfile(firebaseUser);
-            setUserProfile(profile);
-          } catch (profileErr) {
-            console.warn('Profile fetch failed, using fallback:', profileErr);
-            setUserProfile({
-              uid: firebaseUser.uid,
-              full_name: firebaseUser.displayName || '',
-              email: firebaseUser.email || '',
-              photo_url: firebaseUser.photoURL || null,
-              profile_picture: null,
-              role: ADMIN_EMAILS.includes(firebaseUser.email?.toLowerCase()) ? 'admin' : 'user',
-              preferences: {},
-              created_date: new Date().toISOString(),
-            });
-          }
-        } else {
-          setUser(null);
-          setUserProfile(null);
+    const unsub = onAuthStateChanged(firebaseAuth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+
+        const fallback = buildFallbackProfile(firebaseUser);
+        if (!profileLoadedRef.current) {
+          setUserProfile(fallback);
         }
-      } finally {
+        setLoading(false);
+
+        withTimeout(ensureUserProfile(firebaseUser), PROFILE_TIMEOUT_MS)
+          .then((profile) => {
+            profileLoadedRef.current = true;
+            setUserProfile(profile);
+          })
+          .catch((err) => {
+            console.warn('Profile load failed, using fallback:', err.message);
+            if (!profileLoadedRef.current) {
+              setUserProfile(fallback);
+            }
+          });
+      } else {
+        setUser(null);
+        setUserProfile(null);
+        profileLoadedRef.current = false;
         setLoading(false);
       }
     });
@@ -75,10 +99,12 @@ export function AuthProvider({ children }) {
           updated_date: serverTimestamp(),
         }, { merge: true });
       }
-      return { uid: firebaseUser.uid, ...snap.data(), ...({
+      return {
+        uid: firebaseUser.uid,
+        ...data,
         full_name: firebaseUser.displayName || data.full_name,
         photo_url: firebaseUser.photoURL || data.photo_url,
-      }) };
+      };
     }
 
     const role = ADMIN_EMAILS.includes(firebaseUser.email?.toLowerCase()) ? 'admin' : 'user';
@@ -122,29 +148,44 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+    profileLoadedRef.current = false;
     await signOut(firebaseAuth);
   }
 
   async function updateUserProfile(data) {
     if (!user) return null;
-    const ref = doc(db, 'users', user.uid);
-    await setDoc(ref, { ...data, updated_date: serverTimestamp() }, { merge: true });
-    const snap = await getDoc(ref);
-    const updated = { uid: user.uid, ...snap.data() };
-    setUserProfile(updated);
-    return updated;
+    try {
+      const ref = doc(db, 'users', user.uid);
+      await withTimeout(
+        setDoc(ref, { ...data, updated_date: serverTimestamp() }, { merge: true }),
+        PROFILE_TIMEOUT_MS
+      );
+      const snap = await withTimeout(getDoc(ref), PROFILE_TIMEOUT_MS);
+      const updated = { uid: user.uid, ...snap.data() };
+      setUserProfile(updated);
+      return updated;
+    } catch (err) {
+      console.error('updateUserProfile failed:', err);
+      const updated = { ...userProfile, ...data };
+      setUserProfile(updated);
+      return updated;
+    }
   }
 
   async function refreshProfile() {
     if (!user) return null;
-    const ref = doc(db, 'users', user.uid);
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      const profile = { uid: user.uid, ...snap.data() };
-      setUserProfile(profile);
-      return profile;
+    try {
+      const ref = doc(db, 'users', user.uid);
+      const snap = await withTimeout(getDoc(ref), PROFILE_TIMEOUT_MS);
+      if (snap.exists()) {
+        const profile = { uid: user.uid, ...snap.data() };
+        setUserProfile(profile);
+        return profile;
+      }
+    } catch (err) {
+      console.warn('refreshProfile failed:', err.message);
     }
-    return null;
+    return userProfile;
   }
 
   const isAdmin = userProfile?.role === 'admin' ||

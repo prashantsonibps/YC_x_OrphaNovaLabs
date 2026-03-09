@@ -12,7 +12,7 @@ export default function Login() {
     if (!authLoading && user) {
       navigate('/Dashboard', { replace: true });
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading]);
 
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -23,16 +23,33 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   const handleGoogleSignIn = async () => {
     setError('');
     setLoading(true);
     try {
       await loginWithGoogle();
-      navigate('/Dashboard');
     } catch (err) {
-      if (err.code === 'auth/popup-closed-by-user') return;
+      if (err.code === 'auth/popup-closed-by-user') {
+        setLoading(false);
+        return;
+      }
       setError(err.message);
-    } finally {
       setLoading(false);
     }
   };
@@ -52,7 +69,6 @@ export default function Login() {
       } else {
         await loginWithEmail(email, password);
       }
-      navigate('/Dashboard');
     } catch (err) {
       const msg = {
         'auth/user-not-found': 'No account found with this email',
@@ -64,7 +80,6 @@ export default function Login() {
         'auth/too-many-requests': 'Too many attempts. Please try again later.',
       }[err.code] || err.message;
       setError(msg);
-    } finally {
       setLoading(false);
     }
   };
@@ -85,14 +100,6 @@ export default function Login() {
       setLoading(false);
     }
   };
-
-  if (authLoading || user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950">
-        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">

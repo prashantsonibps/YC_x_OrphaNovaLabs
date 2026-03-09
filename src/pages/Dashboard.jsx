@@ -70,28 +70,23 @@ function DashboardContent() {
 
   useEffect(() => {
     if (userProfile) {
-      checkAuthAndLoadProjects();
+      setUser(userProfile);
+      loadProjects();
     }
   }, [userProfile]);
 
-  const checkAuthAndLoadProjects = async () => {
+  const loadProjects = async () => {
     try {
-      setUser(userProfile);
-
-      // Run localStorage -> Firestore migration on first sign-in
-      try {
-        await migrateLocalStorageToFirestore();
-      } catch (migErr) {
-        console.warn('Migration skipped:', migErr);
-      }
+      // Migration: fire-and-forget, don't block dashboard load
+      migrateLocalStorageToFirestore().catch((err) =>
+        console.warn('Migration skipped:', err.message)
+      );
 
       const isFirstTime = !localStorage.getItem('orphanova-dashboard-visited');
       if (isFirstTime) {
         setShowWelcome(true);
         localStorage.setItem('orphanova-dashboard-visited', 'true');
-        setTimeout(() => {
-          setShowWelcome(false);
-        }, 2000);
+        setTimeout(() => setShowWelcome(false), 2000);
       }
 
       const allProjects = await Project.filter({}, '-updated_date');
@@ -104,6 +99,7 @@ function DashboardContent() {
       setStats({ active, completed, archived });
     } catch (error) {
       console.error('Load error:', error);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
