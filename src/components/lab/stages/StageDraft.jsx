@@ -1621,11 +1621,15 @@ ${stripHtml(content.references || 'No references provided.')}
         )}
       </div>
 
-      <FullResearchReport
-        project={project}
-        open={showReport}
-        onClose={() => setShowReport(false)}
-      />
+      {showReport && (
+        <div className="max-w-7xl mx-auto mt-6">
+          <FullResearchReport
+            project={project}
+            visible={showReport}
+            onClose={() => setShowReport(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
