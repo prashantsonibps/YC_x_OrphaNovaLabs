@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Save, Mail, Bell, Database, Shield, Crown, ExternalLink } from 'lucide-react';
-import { auth } from '@/api/authClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useTheme } from '../ThemeContext';
 
 export default function SettingsModal({ user, onClose, onUpdate }) {
   const { theme } = useTheme();
+  const { updateUserProfile, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   
-  // Settings state
   const [settings, setSettings] = useState({
     email_notifications: true,
     research_updates: true,
@@ -29,10 +29,9 @@ export default function SettingsModal({ user, onClose, onUpdate }) {
 
   const loadSettings = async () => {
     try {
-      // Load settings from user preferences
-      const currentUser = await auth.me();
+      const currentUser = await refreshProfile();
       if (currentUser?.preferences) {
-        setSettings({ ...settings, ...currentUser.preferences });
+        setSettings(prev => ({ ...prev, ...currentUser.preferences }));
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -42,13 +41,10 @@ export default function SettingsModal({ user, onClose, onUpdate }) {
   const handleSaveSettings = async () => {
     setLoading(true);
     try {
-      await auth.updateMe({
-        preferences: settings
-      });
+      const updated = await updateUserProfile({ preferences: settings });
       
-      if (onUpdate) {
-        const updatedUser = await auth.me();
-        onUpdate(updatedUser);
+      if (onUpdate && updated) {
+        onUpdate(updated);
       }
       
       alert('Settings saved successfully!');
@@ -129,7 +125,7 @@ export default function SettingsModal({ user, onClose, onUpdate }) {
                     Want more features and unlimited access?
                   </p>
                   <a
-                    href="mailto:founders@orphanova.com?subject=Upgrade%20to%20Advanced%20Plan"
+                    href="mailto:hello@orphanova.com?subject=Upgrade%20to%20Advanced%20Plan"
                     className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg transition-all"
                   >
                     <Crown className="w-4 h-4" />

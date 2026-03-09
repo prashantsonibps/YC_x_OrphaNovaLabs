@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { auth } from '@/api/authClient';
 import { Project } from '@/api/entities';
+import { useAuth } from '@/contexts/AuthContext';
 import { createPageUrl } from '../utils/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -12,7 +13,6 @@ import {
 import Sidebar from '../components/lab/Sidebar';
 import NovusAssistant from '../components/lab/NovusAssistantEnhanced';
 import Header from '../components/shared/Header';
-// import Footer from '../components/shared/Footer'; // Kept for possible re-use later
 import { ThemeProvider, useTheme } from '../components/ThemeContext';
 import StageUpload from '../components/lab/stages/StageUploadNew';
 import StageLiterature from '../components/lab/stages/StageLiterature';
@@ -65,6 +65,7 @@ function LabContent() {
   const { theme } = useTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { userProfile } = useAuth();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentProject, setCurrentProject] = useState(null);
@@ -74,17 +75,15 @@ function LabContent() {
   const [novusOpen, setNovusOpen] = useState(false);
   const [novusWidth, setNovusWidth] = useState(384);
 
-  // Run auth + load when we land on Lab or when URL project param changes (projectId from URL passed explicitly to avoid stale closure)
   const projectIdFromUrl = searchParams.get('project');
   useEffect(() => {
+    if (!userProfile) return;
     setLoading(true);
     let cancelled = false;
     const run = async () => {
       try {
-        const currentUser = await auth.me();
-        if (cancelled) return;
-        setUser(currentUser);
-        await loadProject(currentUser, projectIdFromUrl);
+        setUser(userProfile);
+        await loadProject(userProfile, projectIdFromUrl);
       } catch (error) {
         if (!cancelled) console.error('Load error:', error);
       } finally {
@@ -93,7 +92,7 @@ function LabContent() {
     };
     run();
     return () => { cancelled = true; };
-  }, [projectIdFromUrl]);
+  }, [projectIdFromUrl, userProfile]);
 
   // Auto-close sidebar after 5 seconds
   useEffect(() => {
@@ -117,10 +116,8 @@ function LabContent() {
           project = await Project.get(projectId);
         }
       } else {
-        // Load most recent active project (guest uses created_by 'guest')
-        const createdBy = currentUser?.email ?? 'guest';
         let projects = await Project.filter(
-          { created_by: createdBy, status: 'active' },
+          { status: 'active' },
           '-updated_date',
           1
         );

@@ -81,7 +81,7 @@ export default function Footer() {
             </a>
             <span className={theme === 'dark' ? 'text-slate-700' : 'text-slate-300'}>|</span>
             <a
-              href="mailto:founders@orphanova.com"
+              href="mailto:hello@orphanova.com"
               className={`transition-colors ${
               theme === 'dark' ?
               'text-slate-400 hover:text-white' :

@@ -1,82 +1,58 @@
-// No authentication: app runs without sign-in. Name/email in localStorage for profile only.
-const GUEST_STORAGE_KEYS = {
-  name: 'orphanova_guest_name',
-  email: 'orphanova_guest_email',
-  preferences: 'orphanova_guest_preferences',
-  profile_picture: 'orphanova_guest_profile_picture',
-};
+import { signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { firebaseAuth, db } from '@/firebase';
 
-function safeGetItem(key) {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return null;
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
+function getCurrentUser() {
+  return firebaseAuth.currentUser;
+}
+
+async function getUserProfile() {
+  const fbUser = getCurrentUser();
+  if (!fbUser) return null;
+
+  const ref = doc(db, 'users', fbUser.uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    return { uid: fbUser.uid, ...snap.data() };
   }
-}
-
-function safeSetItem(key, value) {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(key, value);
-    }
-  } catch {}
-}
-
-function safeRemoveItem(key) {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(key);
-    }
-  } catch {}
-}
-
-function getGuestUser() {
-  const name = safeGetItem(GUEST_STORAGE_KEYS.name) || 'User';
-  const email = safeGetItem(GUEST_STORAGE_KEYS.email) || '';
-  let preferences = {};
-  try {
-    const raw = safeGetItem(GUEST_STORAGE_KEYS.preferences);
-    preferences = raw ? JSON.parse(raw) : {};
-  } catch {
-    preferences = {};
-  }
-
-  const profile_picture = safeGetItem(GUEST_STORAGE_KEYS.profile_picture) || null;
 
   return {
-    uid: 'guest',
-    full_name: name,
-    email,
-    photo_url: null,
-    profile_picture,
+    uid: fbUser.uid,
+    full_name: fbUser.displayName || '',
+    email: fbUser.email || '',
+    photo_url: fbUser.photoURL || null,
+    profile_picture: null,
     role: 'user',
     created_date: new Date().toISOString(),
-    preferences,
+    preferences: {},
   };
 }
 
 export const auth = {
-  isAuthenticated: async () => true,
+  isAuthenticated: async () => !!getCurrentUser(),
 
   redirectHome: () => {
-    window.location.href = '/';
+    window.location.href = '/Dashboard';
   },
 
-  me: async () => getGuestUser(),
+  me: async () => {
+    return getUserProfile();
+  },
 
   logout: async () => {
-    safeRemoveItem(GUEST_STORAGE_KEYS.name);
-    safeRemoveItem(GUEST_STORAGE_KEYS.email);
-    safeRemoveItem(GUEST_STORAGE_KEYS.preferences);
-    window.location.href = '/';
+    await signOut(firebaseAuth);
+    window.location.href = '/login';
   },
 
   updateMe: async (data) => {
-    if (data.full_name != null) safeSetItem(GUEST_STORAGE_KEYS.name, data.full_name);
-    if (data.email != null) safeSetItem(GUEST_STORAGE_KEYS.email, data.email);
-    if (data.preferences != null) safeSetItem(GUEST_STORAGE_KEYS.preferences, JSON.stringify(data.preferences));
-    if (data.profile_picture != null) safeSetItem(GUEST_STORAGE_KEYS.profile_picture, data.profile_picture);
-    return { ...getGuestUser(), ...data };
+    const fbUser = getCurrentUser();
+    if (!fbUser) throw new Error('Not authenticated');
+
+    const ref = doc(db, 'users', fbUser.uid);
+    const updateData = { ...data, updated_date: serverTimestamp() };
+    delete updateData.uid;
+    await setDoc(ref, updateData, { merge: true });
+
+    return getUserProfile();
   },
 };

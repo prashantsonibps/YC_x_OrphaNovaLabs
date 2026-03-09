@@ -151,7 +151,7 @@ export default function Header({ user, onUserUpdate, projectName, onProjectNameC
                   </> :
 
                 <a
-                  href="mailto:founders@orphanova.com?subject=Feedback%20from%20OrphaNova%20Lab"
+                  href="mailto:hello@orphanova.com?subject=Feedback%20from%20OrphaNova%20Lab"
                   className={`flex items-center gap-2 px-5 py-2 rounded-full transition-all text-sm ${
                   theme === 'dark' ?
                   'bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-white' :
@@ -219,13 +219,13 @@ export default function Header({ user, onUserUpdate, projectName, onProjectNameC
                     onClick={() => setShowUserMenu(!showUserMenu)} 
                     className="rounded-full w-9 h-9 flex items-center justify-center hover:opacity-90 transition-opacity font-semibold text-white overflow-hidden"
                     style={{
-                      backgroundImage: user?.profile_picture ? `url(${user.profile_picture})` : undefined,
-                      backgroundColor: user?.profile_picture ? undefined : '#f97316',
+                      backgroundImage: (user?.profile_picture || user?.photo_url) ? `url(${user.profile_picture || user.photo_url})` : undefined,
+                      backgroundColor: (user?.profile_picture || user?.photo_url) ? undefined : '#f97316',
                       backgroundSize: 'cover',
                       backgroundPosition: 'center'
                     }}
                   >
-                    {!user?.profile_picture && (user?.full_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U')}
+                    {!(user?.profile_picture || user?.photo_url) && (user?.full_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U')}
                   </button>
 
                   {showUserMenu &&

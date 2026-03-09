@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth } from '@/api/authClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { 
   Users, Activity, FolderKanban, Bell, Database, Shield, 
@@ -39,28 +39,19 @@ const TABS = [
 
 function AdminDashboardContent() {
   const { theme } = useTheme();
+  const { userProfile, loading: authLoading } = useAuth();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const currentUser = await auth.me();
-      if (currentUser.role !== 'admin') {
-        window.location.href = '/Dashboard';
-        return;
-      }
-      setUser(currentUser);
-    } catch (error) {
-      console.error('Load error:', error);
-    } finally {
+    if (userProfile) {
+      setUser(userProfile);
+      setLoading(false);
+    } else if (!authLoading) {
       setLoading(false);
     }
-  };
+  }, [userProfile, authLoading]);
 
   if (loading || !user) {
     return (

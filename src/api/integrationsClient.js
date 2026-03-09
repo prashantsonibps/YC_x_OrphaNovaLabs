@@ -1,27 +1,10 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
-// Keep Firebase initialization local to avoid circular import timing with main.jsx.
-const firebaseConfig = {
-  apiKey: 'AIzaSyCFkpcxebXpT6idu74dUvypf6GQFaauX_Q',
-  authDomain: 'orphanovalabs.firebaseapp.com',
-  projectId: 'orphanovalabs',
-  storageBucket: 'orphanovalabs.firebasestorage.app',
-  messagingSenderId: '788467784982',
-  appId: '1:788467784982:web:e25b51a9dbaf49d1424437',
-  measurementId: 'G-6BBTX7FY52',
-};
-
-function getFunctionsInstance() {
-  const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  return getFunctions(app, 'us-central1');
-}
+import { httpsCallable } from 'firebase/functions';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { functions, storage } from '@/firebase';
 
 export const Core = {
   InvokeLLM: async (params) => {
     try {
-      const functions = getFunctionsInstance();
       const invokeLLMCallable = httpsCallable(functions, 'invokeLLM');
       const { data } = await invokeLLMCallable(params || {});
       return data;
@@ -54,8 +37,6 @@ export const Core = {
     const { file } = params || {};
     if (!file) throw new Error('No file provided to UploadFile.');
     try {
-      const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-      const storage = getStorage(app);
       const timestamp = Date.now();
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const storageRef = ref(storage, `uploads/${timestamp}_${safeName}`);
@@ -81,7 +62,6 @@ export const Core = {
   },
   RunAlphaFold: async (params) => {
     try {
-      const functions = getFunctionsInstance();
       const callable = httpsCallable(functions, 'runAlphaFold', { timeout: 540000 });
       const { data } = await callable(params || {});
       return data;
@@ -94,7 +74,6 @@ export const Core = {
   },
   ScreenDrugs: async (params) => {
     try {
-      const functions = getFunctionsInstance();
       const callable = httpsCallable(functions, 'screenDrugsModal', { timeout: 300000 });
       const { data } = await callable(params || {});
       return data;
@@ -107,7 +86,6 @@ export const Core = {
   },
   RunExperiment: async (params) => {
     try {
-      const functions = getFunctionsInstance();
       const callable = httpsCallable(functions, 'runExperiment', { timeout: 540000 });
       const { data } = await callable(params || {});
       return data;

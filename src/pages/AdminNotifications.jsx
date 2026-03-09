@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth } from '@/api/authClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '../components/admin/NotificationCenter';
@@ -7,27 +7,14 @@ import { ThemeProvider, useTheme } from '../components/ThemeContext';
 
 function AdminNotificationsContent() {
   const { theme } = useTheme();
-  const [user, setUser] = useState(null);
+  const { userProfile, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const currentUser = await auth.me();
-      if (currentUser.role !== 'admin') {
-        window.location.href = '/Dashboard';
-        return;
-      }
-      setUser(currentUser);
-    } catch (error) {
-      console.error('Load error:', error);
-    } finally {
+    if (!authLoading) {
       setLoading(false);
     }
-  };
+  }, [authLoading]);
 
   if (loading) {
     return (

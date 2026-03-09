@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, User, Mail, Lock, Trash2, Calendar, Save, Upload } from 'lucide-react';
 import { auth } from '@/api/authClient';
+import { useAuth } from '@/contexts/AuthContext';
+import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { firebaseAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,15 +13,15 @@ import { Core } from '@/api/integrationsClient';
 
 export default function ProfileModal({ user, onClose, onUpdate }) {
   const { theme } = useTheme();
+  const { updateUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
   
-  // Profile form (name and email editable for guest so user can fill manually)
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [uploading, setUploading] = useState(false);
-  const isGuest = user?.uid === 'guest';
+  const isEmailUser = firebaseAuth.currentUser?.providerData?.some(p => p.providerId === 'password');
 
   useEffect(() => {
     setFullName(user?.full_name || '');
@@ -35,12 +38,10 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
     setLoading(true);
     try {
       const payload = { full_name: fullName, bio };
-      if (isGuest) payload.email = email;
-      await auth.updateMe(payload);
+      const updated = await updateUserProfile(payload);
       
-      if (onUpdate) {
-        const updatedUser = await auth.me();
-        onUpdate(updatedUser);
+      if (onUpdate && updated) {
+        onUpdate(updated);
       }
       
       alert('Profile updated successfully!');
@@ -59,11 +60,10 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
     setUploading(true);
     try {
       const { file_url } = await Core.UploadFile({ file });
-      await auth.updateMe({ profile_picture: file_url });
+      const updated = await updateUserProfile({ profile_picture: file_url });
       
-      if (onUpdate) {
-        const updatedUser = await auth.me();
-        onUpdate(updatedUser);
+      if (onUpdate && updated) {
+        onUpdate(updated);
       }
       
       alert('Profile picture updated!');
@@ -75,6 +75,11 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
   };
 
   const handleChangePassword = async () => {
+    if (!isEmailUser) {
+      alert('Password change is only available for email/password accounts. You signed in with Google.');
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       alert('New passwords do not match!');
       return;
@@ -87,13 +92,17 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
 
     setLoading(true);
     try {
-      // Note: You'll need to implement password change in your backend
-      alert('Password change functionality - implement backend endpoint');
+      const fbUser = firebaseAuth.currentUser;
+      const credential = EmailAuthProvider.credential(fbUser.email, currentPassword);
+      await reauthenticateWithCredential(fbUser, credential);
+      await updatePassword(fbUser, newPassword);
+      alert('Password updated successfully!');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (error) {
-      alert('Error changing password: ' + error.message);
+      const msg = error.code === 'auth/wrong-password' ? 'Current password is incorrect' : error.message;
+      alert('Error changing password: ' + msg);
     } finally {
       setLoading(false);
     }
@@ -203,13 +212,13 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
                     <div 
                       className="w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl font-semibold overflow-hidden"
                       style={{
-                        backgroundImage: user?.profile_picture ? `url(${user.profile_picture})` : undefined,
-                        backgroundColor: user?.profile_picture ? undefined : '#f97316',
+                        backgroundImage: (user?.profile_picture || user?.photo_url) ? `url(${user.profile_picture || user.photo_url})` : undefined,
+                        backgroundColor: (user?.profile_picture || user?.photo_url) ? undefined : '#f97316',
                         backgroundSize: 'cover',
                         backgroundPosition: 'center'
                       }}
                     >
-                      {!user?.profile_picture && ((user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase())}
+                      {!(user?.profile_picture || user?.photo_url) && ((user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase())}
                     </div>
                     <label className="absolute bottom-0 right-0 bg-blue-600 rounded-full p-2 cursor-pointer hover:bg-blue-700 transition-colors">
                       <Upload className="w-4 h-4 text-white" />
@@ -247,12 +256,10 @@ export default function ProfileModal({ user, onClose, onUpdate }) {
                   </label>
                   <Input
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={!isGuest}
-                    className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}
-                    placeholder={isGuest ? 'Enter your email' : undefined}
+                    disabled
+                    className={theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500'}
                   />
-                  {!isGuest && <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>Email cannot be changed</p>}
+                  <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-500'}`}>Email is managed by your sign-in provider</p>
                 </div>
 
                 <div>

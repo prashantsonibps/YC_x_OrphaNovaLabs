@@ -1,29 +1,19 @@
 import Layout from "./Layout.jsx";
-
 import Home from "./Home";
-
 import Lab from "./Lab";
-
 import Dashboard from "./Dashboard";
-
 import AdminDashboard from "./AdminDashboard";
-
 import AdminNotifications from "./AdminNotifications";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 import { Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
-    
     Home: Home,
-    
     Lab: Lab,
-    
     Dashboard: Dashboard,
-    
     AdminDashboard: AdminDashboard,
-    
     AdminNotifications: AdminNotifications,
-    
 }
 
 function _getCurrentPage(url) {
@@ -39,7 +29,6 @@ function _getCurrentPage(url) {
     return pageName || Object.keys(PAGES)[0];
 }
 
-// Create a wrapper component that uses useLocation inside the Router context
 function PagesContent() {
     const location = useLocation();
     const currentPage = _getCurrentPage(location.pathname);
@@ -47,16 +36,22 @@ function PagesContent() {
     return (
         <Layout currentPageName={currentPage}>
             <Routes>            
-                
-                    <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<Dashboard />} />
                 <Route path="/Home" element={<Dashboard />} />
                 <Route path="/Lab" element={<Lab />} />
                 <Route path="/Dashboard" element={<Dashboard />} />
                 
-                <Route path="/AdminDashboard" element={<AdminDashboard />} />
+                <Route path="/AdminDashboard" element={
+                    <ProtectedRoute adminOnly>
+                        <AdminDashboard />
+                    </ProtectedRoute>
+                } />
                 
-                <Route path="/AdminNotifications" element={<AdminNotifications />} />
-                
+                <Route path="/AdminNotifications" element={
+                    <ProtectedRoute adminOnly>
+                        <AdminNotifications />
+                    </ProtectedRoute>
+                } />
             </Routes>
         </Layout>
     );

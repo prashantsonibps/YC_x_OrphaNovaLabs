@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from '@/api/authClient';
 import { Project } from '@/api/entities';
+import { migrateLocalStorageToFirestore } from '@/api/entitiesClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import {
   Plus, Play, Archive, CheckCircle2, Clock,
@@ -13,7 +15,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '../utils/navigation';
 import WelcomeAnimation from '../components/lab/WelcomeAnimation';
 import Header from '../components/shared/Header';
-// import Footer from '../components/shared/Footer'; // Kept for possible re-use later
 import { ThemeProvider, useTheme } from '../components/ThemeContext';
 
 const DNAStrand = ({ className }) =>
@@ -58,6 +59,7 @@ const STAGE_NAMES = [
 function DashboardContent() {
   const { theme } = useTheme();
   const navigate = useNavigate();
+  const { userProfile, updateUserProfile } = useAuth();
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -67,13 +69,21 @@ function DashboardContent() {
   const [editingTitle, setEditingTitle] = useState('');
 
   useEffect(() => {
-    checkAuthAndLoadProjects();
-  }, []);
+    if (userProfile) {
+      checkAuthAndLoadProjects();
+    }
+  }, [userProfile]);
 
   const checkAuthAndLoadProjects = async () => {
     try {
-      const currentUser = await auth.me();
-      setUser(currentUser);
+      setUser(userProfile);
+
+      // Run localStorage -> Firestore migration on first sign-in
+      try {
+        await migrateLocalStorageToFirestore();
+      } catch (migErr) {
+        console.warn('Migration skipped:', migErr);
+      }
 
       const isFirstTime = !localStorage.getItem('orphanova-dashboard-visited');
       if (isFirstTime) {
@@ -84,11 +94,7 @@ function DashboardContent() {
         }, 2000);
       }
 
-      const createdBy = currentUser?.email || 'guest';
-      const allProjects = await Project.filter(
-        { created_by: createdBy },
-        '-updated_date'
-      );
+      const allProjects = await Project.filter({}, '-updated_date');
 
       setProjects(allProjects);
 
@@ -105,7 +111,6 @@ function DashboardContent() {
 
   const createNewProject = async () => {
     try {
-      const currentUser = user || (await auth.me());
       const newProject = await Project.create({
         title: `Research Project ${projects.length + 1}`,
         disease_name: '',
@@ -121,7 +126,6 @@ function DashboardContent() {
           6: 'locked'
         },
         status: 'active',
-        created_by: currentUser?.email || 'guest'
       });
 
       navigate({ pathname: '/Lab', search: `?project=${encodeURIComponent(newProject.id)}` });
@@ -270,7 +274,7 @@ function DashboardContent() {
                 </h2>
                 <p className={`leading-relaxed ${
                 theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`
-                }>OrphaNova is your AI research lab for rare diseases, where human insight meets AI to uncover new discoveries faster than ever.
+                }>OrphaNova is a 7-stage AI research pipeline built specifically for rare disease research. Upload a disease name, patient symptoms, case reports, or research PDFs - OrphaNova retrieves relevant literature, extracts and validates disease-gene relationships against Open Targets, predicts protein structures via AlphaFold2, screens drug candidates in parallel using RDKit, computes binding affinity with Chai-1 molecular docking, surfaces active clinical trials from ClinicalTrials.gov, and generates a publication-ready research paper.
 
 
 
