@@ -1,23 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Loader2, Download, RefreshCw, Image as ImageIcon, Eye } from 'lucide-react';
+import { FileText, Loader2, Download, RefreshCw, Image as ImageIcon, Eye, BarChart2, Lock } from 'lucide-react';
 import { auth } from '@/api/authClient';
 import { Draft, Hypothesis, Experiment } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { useTheme } from '../../ThemeContext';
 import DiseaseImageGallery from '../visualizations/DiseaseImageGallery';
 import { Core } from '@/api/integrationsClient';
+import FullResearchReport from './FullResearchReport';
 
 const FORMATS = [
   { id: 'arxiv', name: 'arXiv', description: 'Open-access preprint format', enabled: true },
-  { id: 'nature', name: 'Nature', description: 'Nature journal format', enabled: true },
-  { id: 'cell', name: 'Cell', description: 'Cell journal format', enabled: true },
-  { id: 'grant', name: 'NIH Grant', description: 'NIH R01 grant application format', enabled: true },
-  { id: 'conference', name: 'Conference', description: 'Conference abstract format', enabled: true }
+  { id: 'nature', name: 'Nature', description: 'Nature journal format', enabled: false },
+  { id: 'cell', name: 'Cell', description: 'Cell journal format', enabled: false },
+  { id: 'grant', name: 'NIH Grant', description: 'NIH R01 grant application format', enabled: false },
+  { id: 'conference', name: 'Conference', description: 'Conference abstract format', enabled: false }
 ];
 
 const FORMAT_SECTIONS = {
@@ -86,6 +88,7 @@ export default function StageDraft({ project, onComplete }) {
   const [imageUrl, setImageUrl] = useState('');
   const [imageCaption, setImageCaption] = useState('');
   const [showPDFPreview, setShowPDFPreview] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const pdfPreviewRef = useRef(null);
 
   useEffect(() => {
@@ -1018,78 +1021,102 @@ ${stripHtml(content.references || 'No references provided.')}
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="mb-8">
           <h2 className={`text-3xl font-bold mb-2 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-            Paper Drafting & Export
+            Research Output
           </h2>
           <p className={theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}>
-            Generate a publication-ready draft with AI assistance. Edit inline and export in multiple formats.
+            Generate a complete visual research report or a structured paper draft for publication.
           </p>
         </div>
 
         {!draft && !generating && (
-          <Card className={theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200 shadow-sm'}>
-            <CardContent className="py-12 text-center">
-              <div className="w-16 h-16 bg-cyan-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <FileText className="w-8 h-8 text-cyan-400" />
-              </div>
-              <p className={`mb-6 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
-                Generate a full paper draft from your research
-              </p>
-              
-              <div className="mb-6">
-                <p className={`text-sm mb-3 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
-                  Select Target Format:
-                </p>
-                <div className="flex flex-wrap gap-2 justify-center">
-                  {FORMATS.map(fmt => (
-                    <button
-                      key={fmt.id}
-                      onClick={() => setSelectedFormat(fmt.id)}
-                      disabled={!fmt.enabled}
-                      className={`px-4 py-2 rounded-lg transition-all ${
-                        selectedFormat === fmt.id
-                          ? 'bg-cyan-600 text-white'
-                          : !fmt.enabled
-                          ? 'opacity-50 cursor-not-allowed bg-slate-600 text-slate-400'
-                          : theme === 'dark'
-                          ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                          : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                      }`}
-                    >
-                      {fmt.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {error && (
-                <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-4 max-w-md mx-auto">
-                  <p className="text-red-300 text-sm mb-2">{error}</p>
-                  {retryCount < 3 && (
+          <div className="space-y-6">
+            {/* Primary: Full Report */}
+            <Card className={`overflow-hidden ${theme === 'dark' ? 'bg-gradient-to-br from-slate-800 to-slate-800/80 border-cyan-500/30' : 'bg-gradient-to-br from-white to-slate-50 border-cyan-200 shadow-lg'}`}>
+              <CardContent className="p-8">
+                <div className="flex items-start gap-6">
+                  <div className="w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shrink-0">
+                    <BarChart2 className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                        Full Research Report
+                      </h3>
+                      <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">Recommended</Badge>
+                    </div>
+                    <p className={`mb-4 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Compiles everything from all 6 stages into one visual report — executive summary, validated targets, drug candidates, experiments, and full paper. Downloadable as PDF.
+                    </p>
                     <Button
-                      onClick={() => {
-                        setRetryCount(retryCount + 1);
-                        handleGenerate();
-                      }}
-                      variant="outline"
-                      size="sm"
-                      className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+                      onClick={() => setShowReport(true)}
+                      className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-base px-6 py-5"
                     >
-                      Retry ({retryCount + 1}/3)
+                      <BarChart2 className="w-5 h-5 mr-2" />
+                      Generate Full Report
                     </Button>
-                  )}
+                  </div>
                 </div>
-              )}
+              </CardContent>
+            </Card>
 
-              <Button
-                onClick={handleGenerate}
-                className="bg-cyan-600 hover:bg-cyan-700"
-                disabled={generating}
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                Generate Draft
-              </Button>
-            </CardContent>
-          </Card>
+            {/* Secondary: arXiv Paper */}
+            <Card className={theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200 shadow-sm'}>
+              <CardContent className="p-6">
+                <div className="flex items-start gap-5">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${theme === 'dark' ? 'bg-slate-700' : 'bg-slate-100'}`}>
+                    <FileText className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className={`font-bold mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      arXiv Paper Draft
+                    </h3>
+                    <p className={`text-sm mb-3 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Generate a structured research paper with abstract, introduction, methods, results, discussion. Editable with AI suggestions. Export as LaTeX.
+                    </p>
+                    <Button
+                      onClick={() => { setSelectedFormat('arxiv'); handleGenerate(); }}
+                      variant="outline"
+                      className={theme === 'dark' ? 'border-slate-600 hover:bg-slate-700' : 'border-slate-300 hover:bg-slate-100'}
+                      disabled={generating}
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Generate arXiv Draft
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Other formats — Coming Soon */}
+            <div className="grid grid-cols-2 gap-4">
+              {FORMATS.filter(f => !f.enabled).map(fmt => (
+                <Card key={fmt.id} className={`${theme === 'dark' ? 'bg-slate-800/30 border-slate-700/50' : 'bg-slate-50 border-slate-200'} opacity-60`}>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+                    <div>
+                      <p className={`text-sm font-medium ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{fmt.name}</p>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Coming Soon</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {error && (
+              <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 max-w-md mx-auto text-center">
+                <p className="text-red-300 text-sm mb-2">{error}</p>
+                {retryCount < 3 && (
+                  <Button
+                    onClick={() => { setRetryCount(retryCount + 1); handleGenerate(); }}
+                    variant="outline" size="sm"
+                    className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+                  >
+                    Retry ({retryCount + 1}/3)
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {(generating || regenerating) && (
@@ -1168,6 +1195,13 @@ ${stripHtml(content.references || 'No references provided.')}
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      onClick={() => setShowReport(true)}
+                      className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700"
+                    >
+                      <BarChart2 className="w-4 h-4 mr-2" />
+                      Full Report
+                    </Button>
                     <Button 
                       onClick={() => setShowPDFPreview(true)} 
                       variant="outline" 
@@ -1586,6 +1620,12 @@ ${stripHtml(content.references || 'No references provided.')}
           </>
         )}
       </div>
+
+      <FullResearchReport
+        project={project}
+        open={showReport}
+        onClose={() => setShowReport(false)}
+      />
     </div>
   );
 }
