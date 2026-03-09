@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
@@ -6,7 +6,13 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { loginWithGoogle, loginWithEmail, signUpWithEmail, resetPassword } = useAuth();
+  const { user, loading: authLoading, loginWithGoogle, loginWithEmail, signUpWithEmail, resetPassword } = useAuth();
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate('/Dashboard', { replace: true });
+    }
+  }, [user, authLoading, navigate]);
 
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -79,6 +85,14 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  if (authLoading || user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
@@ -252,7 +266,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-6">
-          AI-powered rare disease research platform
+          © OrphaNova Labs
         </p>
       </motion.div>
     </div>

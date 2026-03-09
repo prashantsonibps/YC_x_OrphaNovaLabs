@@ -32,15 +32,32 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        const profile = await ensureUserProfile(firebaseUser);
-        setUserProfile(profile);
-      } else {
-        setUser(null);
-        setUserProfile(null);
+      try {
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          try {
+            const profile = await ensureUserProfile(firebaseUser);
+            setUserProfile(profile);
+          } catch (profileErr) {
+            console.warn('Profile fetch failed, using fallback:', profileErr);
+            setUserProfile({
+              uid: firebaseUser.uid,
+              full_name: firebaseUser.displayName || '',
+              email: firebaseUser.email || '',
+              photo_url: firebaseUser.photoURL || null,
+              profile_picture: null,
+              role: ADMIN_EMAILS.includes(firebaseUser.email?.toLowerCase()) ? 'admin' : 'user',
+              preferences: {},
+              created_date: new Date().toISOString(),
+            });
+          }
+        } else {
+          setUser(null);
+          setUserProfile(null);
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsub;
   }, []);
