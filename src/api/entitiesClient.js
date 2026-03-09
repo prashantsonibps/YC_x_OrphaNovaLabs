@@ -6,6 +6,16 @@ import {
 import { updateProfile } from 'firebase/auth';
 import { db, firebaseAuth } from '@/firebase';
 
+const REQUEST_TIMEOUT_MS = 10000;
+
+function withTimeout(promise, ms = REQUEST_TIMEOUT_MS) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Firestore request timed out')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function getUid() {
   return firebaseAuth.currentUser?.uid || null;
 }
@@ -36,7 +46,7 @@ function docToItem(d) {
 function makeEntity(collectionName) {
   return {
     list: async () => {
-      const snap = await getDocs(userCollection(collectionName));
+      const snap = await withTimeout(getDocs(userCollection(collectionName)));
       return snap.docs.map(docToItem);
     },
 
@@ -64,7 +74,7 @@ function makeEntity(collectionName) {
         q = query(ref, ...constraints, firestoreLimit(max));
       }
 
-      const snap = await getDocs(q);
+      const snap = await withTimeout(getDocs(q));
       let items = snap.docs.map(docToItem);
 
       items.sort((a, b) => {
@@ -80,14 +90,14 @@ function makeEntity(collectionName) {
       const uid = getUid();
       if (!uid) return null;
       const ref = doc(db, 'users', uid, collectionName, id);
-      const snap = await getDoc(ref);
+      const snap = await withTimeout(getDoc(ref));
       return snap.exists() ? docToItem(snap) : null;
     },
 
     create: async (data) => {
       const now = serverTimestamp();
       const payload = { ...data, created_date: now, updated_date: now };
-      const ref = await addDoc(userCollection(collectionName), payload);
+      const ref = await withTimeout(addDoc(userCollection(collectionName), payload));
       return { id: ref.id, ...data, created_date: new Date().toISOString(), updated_date: new Date().toISOString() };
     },
 
@@ -95,8 +105,8 @@ function makeEntity(collectionName) {
       const uid = getUid();
       if (!uid) return null;
       const ref = doc(db, 'users', uid, collectionName, id);
-      await updateDoc(ref, { ...data, updated_date: serverTimestamp() });
-      const snap = await getDoc(ref);
+      await withTimeout(updateDoc(ref, { ...data, updated_date: serverTimestamp() }));
+      const snap = await withTimeout(getDoc(ref));
       return snap.exists() ? docToItem(snap) : null;
     },
 
@@ -104,7 +114,7 @@ function makeEntity(collectionName) {
       const uid = getUid();
       if (!uid) return null;
       const ref = doc(db, 'users', uid, collectionName, id);
-      await deleteDoc(ref);
+      await withTimeout(deleteDoc(ref));
       return { id };
     },
   };
@@ -118,7 +128,7 @@ function globalCollection(collectionName) {
 function makeGlobalEntity(collectionName) {
   return {
     list: async () => {
-      const snap = await getDocs(globalCollection(collectionName));
+      const snap = await withTimeout(getDocs(globalCollection(collectionName)));
       return snap.docs.map(docToItem);
     },
 
@@ -140,7 +150,7 @@ function makeGlobalEntity(collectionName) {
         q = query(ref, ...constraints, firestoreLimit(max));
       }
 
-      const snap = await getDocs(q);
+      const snap = await withTimeout(getDocs(q));
       let items = snap.docs.map(docToItem);
       const sortField = sortBy.startsWith('-') ? sortBy.slice(1) : sortBy;
       const sortDir = sortBy.startsWith('-') ? 'desc' : 'asc';
@@ -154,27 +164,27 @@ function makeGlobalEntity(collectionName) {
 
     get: async (id) => {
       const ref = doc(db, collectionName, id);
-      const snap = await getDoc(ref);
+      const snap = await withTimeout(getDoc(ref));
       return snap.exists() ? docToItem(snap) : null;
     },
 
     create: async (data) => {
       const now = serverTimestamp();
       const payload = { ...data, created_date: now, updated_date: now };
-      const ref = await addDoc(globalCollection(collectionName), payload);
+      const ref = await withTimeout(addDoc(globalCollection(collectionName), payload));
       return { id: ref.id, ...data, created_date: new Date().toISOString(), updated_date: new Date().toISOString() };
     },
 
     update: async (id, data) => {
       const ref = doc(db, collectionName, id);
-      await updateDoc(ref, { ...data, updated_date: serverTimestamp() });
-      const snap = await getDoc(ref);
+      await withTimeout(updateDoc(ref, { ...data, updated_date: serverTimestamp() }));
+      const snap = await withTimeout(getDoc(ref));
       return snap.exists() ? docToItem(snap) : null;
     },
 
     delete: async (id) => {
       const ref = doc(db, collectionName, id);
-      await deleteDoc(ref);
+      await withTimeout(deleteDoc(ref));
       return { id };
     },
   };
@@ -254,7 +264,7 @@ export async function migrateLocalStorageToFirestore() {
       totalDocs++;
     }
 
-    await batch.commit();
+    await withTimeout(batch.commit());
   }
 
   // Migrate guest profile data
@@ -271,14 +281,14 @@ export async function migrateLocalStorageToFirestore() {
       try { profileUpdate.preferences = JSON.parse(guestPrefs); } catch {}
     }
     const userRef = doc(db, 'users', uid);
-    const snap = await getDoc(userRef);
+    const snap = await withTimeout(getDoc(userRef));
     if (snap.exists()) {
       const existing = snap.data();
       if (!existing.full_name && profileUpdate.full_name && firebaseAuth.currentUser) {
         await updateProfile(firebaseAuth.currentUser, { displayName: profileUpdate.full_name });
       }
     }
-    await setDoc(userRef, { ...profileUpdate, updated_date: serverTimestamp() }, { merge: true });
+    await withTimeout(setDoc(userRef, { ...profileUpdate, updated_date: serverTimestamp() }, { merge: true }));
   }
 
   localStorage.setItem(LS_MIGRATION_KEY, uid);

@@ -62,6 +62,15 @@ const STAGES = [
 ];
 
 function LabContent() {
+  const REQUEST_TIMEOUT_MS = 10000;
+  const withTimeout = (promise, ms = REQUEST_TIMEOUT_MS) => {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Request timed out')), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  };
+
   const { theme } = useTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -69,6 +78,7 @@ function LabContent() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentProject, setCurrentProject] = useState(null);
+  const [loadError, setLoadError] = useState('');
   const [currentStage, setCurrentStage] = useState(0);
   const [autoSaving, setAutoSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -79,6 +89,7 @@ function LabContent() {
   useEffect(() => {
     if (!userProfile) return;
     setLoading(true);
+    setLoadError('');
     let cancelled = false;
     const run = async () => {
       try {
@@ -109,34 +120,30 @@ function LabContent() {
 
       let project;
       if (projectId) {
-        let projects = await Project.filter({ id: projectId });
-        project = projects[0];
-        // Fallback: fetch by id in case filter missed it (e.g. created_by not set yet)
-        if (!project) {
-          project = await Project.get(projectId);
-        }
+        // Direct doc lookup is reliable for project id.
+        project = await withTimeout(Project.get(projectId));
       } else {
-        let projects = await Project.filter(
+        let projects = await withTimeout(Project.filter(
           { status: 'active' },
           '-updated_date',
           1
-        );
+        ));
         project = projects[0];
-        if (!project) {
-          projects = await Project.filter({ status: 'active' }, '-updated_date', 1);
-          project = projects[0];
-        }
       }
 
       if (project) {
         setCurrentProject(project);
         setCurrentStage(project.current_stage || 0);
+        setLoadError('');
       } else {
-        // Redirect to dashboard if no project found
+        setCurrentProject(null);
+        setLoadError('Project not found. It may have failed to save.');
         navigate('/Dashboard');
       }
     } catch (error) {
       console.error('Project load error:', error);
+      setCurrentProject(null);
+      setLoadError(error?.message || 'Failed to load project.');
     } finally {
       setLoading(false);
     }
@@ -211,7 +218,7 @@ function LabContent() {
     return () => clearInterval(interval);
   }, [currentProject]);
 
-  if (loading || !currentProject) {
+  if (loading) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${
         theme === 'dark' ? 'bg-slate-950' : 'bg-stone-50'
@@ -219,6 +226,29 @@ function LabContent() {
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className={`text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Loading OrphaNova Labs...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentProject) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center px-6 ${
+        theme === 'dark' ? 'bg-slate-950' : 'bg-stone-50'
+      }`}>
+        <div className={`max-w-lg w-full rounded-xl p-6 border ${
+          theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <h2 className="text-xl font-semibold mb-2">Unable to open project</h2>
+          <p className={`text-sm mb-5 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+            {loadError || 'The project could not be loaded right now.'}
+          </p>
+          <button
+            onClick={() => navigate('/Dashboard')}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            Back to Dashboard
+          </button>
         </div>
       </div>
     );
