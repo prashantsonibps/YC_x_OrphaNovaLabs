@@ -6,7 +6,15 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { user, loading: authLoading, loginWithGoogle, loginWithEmail, signUpWithEmail, resetPassword } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    loginWithGoogle,
+    loginWithApple,
+    loginWithEmail,
+    signUpWithEmail,
+    resetPassword,
+  } = useAuth();
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -50,6 +58,24 @@ export default function Login() {
         return;
       }
       setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      await loginWithApple();
+    } catch (err) {
+      if (err.code === 'auth/popup-closed-by-user') {
+        setLoading(false);
+        return;
+      }
+      const msg = {
+        'auth/unauthorized-domain': 'This domain is not authorized in Firebase Auth settings.',
+      }[err.code] || err.message;
+      setError(msg);
       setLoading(false);
     }
   };
@@ -145,6 +171,15 @@ export default function Login() {
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
                 Continue with Google
+              </button>
+
+              <button
+                onClick={handleAppleSignIn}
+                disabled={loading}
+                className="w-full mt-3 flex items-center justify-center gap-3 bg-black hover:bg-gray-900 text-white font-medium py-3 px-4 rounded-xl transition-all disabled:opacity-50"
+              >
+                <span className="text-lg leading-none"></span>
+                Continue with Apple
               </button>
 
               <div className="flex items-center gap-3 my-6">
@@ -250,6 +285,13 @@ export default function Login() {
                 </>
               )}
             </button>
+
+            <a
+              href="mailto:support@orphanova.com?subject=Trouble%20logging%20in%20to%20OrphaNova"
+              className="mt-3 w-full inline-flex items-center justify-center text-sm text-slate-300 hover:text-white"
+            >
+              Trouble logging in? Contact support@orphanova.com
+            </a>
           </form>
 
           {/* Mode Toggle */}

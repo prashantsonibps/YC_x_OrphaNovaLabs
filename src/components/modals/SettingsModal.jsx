@@ -125,7 +125,7 @@ export default function SettingsModal({ user, onClose, onUpdate }) {
                     Want more features and unlimited access?
                   </p>
                   <a
-                    href="mailto:hello@orphanova.com?subject=Upgrade%20to%20Advanced%20Plan"
+                    href="mailto:admin@orphanova.com?subject=Upgrade%20to%20Advanced%20Plan"
                     className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg transition-all"
                   >
                     <Crown className="w-4 h-4" />

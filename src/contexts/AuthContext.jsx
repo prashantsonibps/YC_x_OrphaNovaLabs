@@ -7,6 +7,7 @@ import {
   updateProfile,
   signOut,
   GoogleAuthProvider,
+  OAuthProvider,
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -130,6 +131,14 @@ export function AuthProvider({ children }) {
     return result.user;
   }
 
+  async function loginWithApple() {
+    const provider = new OAuthProvider('apple.com');
+    provider.addScope('email');
+    provider.addScope('name');
+    const result = await signInWithPopup(firebaseAuth, provider);
+    return result.user;
+  }
+
   async function loginWithEmail(email, password) {
     const result = await signInWithEmailAndPassword(firebaseAuth, email, password);
     return result.user;
@@ -197,6 +206,7 @@ export function AuthProvider({ children }) {
     loading,
     isAdmin,
     loginWithGoogle,
+    loginWithApple,
     loginWithEmail,
     signUpWithEmail,
     resetPassword,

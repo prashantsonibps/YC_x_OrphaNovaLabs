@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const functionsV1 = require('firebase-functions/v1');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const TAMARIND_BASE = 'https://app.tamarind.bio/api';
@@ -15,6 +16,68 @@ const FAST_MODEL_FALLBACKS = [
   'claude-3-5-haiku-latest',
   'claude-3-haiku-20240307',
 ];
+
+async function sendWelcomeEmail({
+  toEmail,
+  toName,
+  appUrl,
+  supportEmail,
+  fromEmail,
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('sendWelcomeEmail skipped: RESEND_API_KEY is not set.');
+    return;
+  }
+
+  const html = `
+  <div style="font-family: Inter, Arial, sans-serif; color: #0f172a; line-height: 1.6; max-width: 640px;">
+    <div style="margin: 0 0 16px;">
+      <img
+        src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6914994ade0eb501881d7e25/0ee5cd7ea_image.png"
+        alt="OrphaNova Labs"
+        width="56"
+        height="56"
+        style="display:block;border-radius:8px;"
+      />
+    </div>
+    <h2 style="margin: 0 0 12px;">Welcome to OrphaNova Labs${toName ? `, ${toName}` : ''}</h2>
+    <p style="margin: 0 0 12px;">
+      Your account is now active. You can start new rare disease research projects, run the AI pipeline, and generate publication-ready outputs.
+    </p>
+    <p style="margin: 0 0 20px;">
+      Click below to open your dashboard.
+    </p>
+    <a href="${appUrl}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;">
+      Open OrphaNova
+    </a>
+    <p style="margin: 20px 0 0; font-size: 14px; color: #334155;">
+      Don't forget to send us your review, and let us know if you run into any issue.
+    </p>
+    <p style="margin: 10px 0 0; font-size: 13px; color: #475569;">
+      Need help? Email <a href="mailto:${supportEmail}">${supportEmail}</a>.
+    </p>
+  </div>`;
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [toEmail],
+      subject: 'Welcome to OrphaNova Labs',
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Resend API error (${response.status}): ${body}`);
+  }
+}
 
 function extractTextContent(content) {
   if (!Array.isArray(content)) return '';
@@ -730,3 +793,35 @@ exports.screenDrugsModal = onCall(
     };
   }
 );
+
+// ---------------------------------------------------------------------------
+// sendWelcomeOnSignup — Sends welcome email after first account creation
+// ---------------------------------------------------------------------------
+
+exports.sendWelcomeOnSignup = functionsV1
+  .region('us-central1')
+  .runWith({ timeoutSeconds: 60, memory: '256MB' })
+  .auth.user()
+  .onCreate(async (user) => {
+    if (!user?.email) {
+      console.log('sendWelcomeOnSignup: skipped user without email', user?.uid || 'unknown');
+      return;
+    }
+
+    const appUrl = process.env.APP_URL || 'https://orphanovalabs.web.app';
+    const supportEmail = process.env.SUPPORT_EMAIL || 'support@orphanova.com';
+    const fromEmail = process.env.WELCOME_FROM_EMAIL || 'OrphaNova Labs <hello@orphanova.com>';
+
+    try {
+      await sendWelcomeEmail({
+        toEmail: user.email,
+        toName: user.displayName || '',
+        appUrl,
+        supportEmail,
+        fromEmail,
+      });
+      console.log('sendWelcomeOnSignup: welcome email sent to', user.email);
+    } catch (error) {
+      console.error('sendWelcomeOnSignup failed:', error.message);
+    }
+  });
