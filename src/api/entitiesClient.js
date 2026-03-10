@@ -43,6 +43,25 @@ function docToItem(d) {
   };
 }
 
+function matchesQuery(item, queryObj = {}) {
+  for (const [key, val] of Object.entries(queryObj)) {
+    if (val !== undefined && val !== null && item[key] !== val) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sortItems(items, sortBy) {
+  const sortField = sortBy.startsWith('-') ? sortBy.slice(1) : sortBy;
+  const sortDir = sortBy.startsWith('-') ? 'desc' : 'asc';
+  return [...items].sort((a, b) => {
+    const dateA = new Date(a[sortField] || 0);
+    const dateB = new Date(b[sortField] || 0);
+    return sortDir === 'desc' ? dateB - dateA : dateA - dateB;
+  });
+}
+
 function makeEntity(collectionName) {
   return {
     list: async () => {
@@ -52,7 +71,6 @@ function makeEntity(collectionName) {
 
     filter: async (queryObj = {}, sortBy = '-created_date', max = 100) => {
       let ref = userCollection(collectionName);
-      let q = query(ref);
 
       const constraints = [];
       for (const [key, val] of Object.entries(queryObj)) {
@@ -63,27 +81,30 @@ function makeEntity(collectionName) {
 
       const sortField = sortBy.startsWith('-') ? sortBy.slice(1) : sortBy;
       const sortDir = sortBy.startsWith('-') ? 'desc' : 'asc';
-
-      if (constraints.length > 0) {
-        q = query(ref, ...constraints);
-      }
-
+      // Try best-performance query first (where + orderBy + limit).
       try {
-        q = query(ref, ...constraints, orderBy(sortField, sortDir), firestoreLimit(max));
-      } catch {
-        q = query(ref, ...constraints, firestoreLimit(max));
+        const q = query(ref, ...constraints, orderBy(sortField, sortDir), firestoreLimit(max));
+        const snap = await withTimeout(getDocs(q));
+        return snap.docs.map(docToItem);
+      } catch (err) {
+        // Missing composite index is common in dev/prod drift.
+        console.warn(`Index fallback (${collectionName}):`, err?.message || err);
       }
 
-      const snap = await withTimeout(getDocs(q));
-      let items = snap.docs.map(docToItem);
+      // Fallback 1: where + limit (no orderBy), then sort in memory.
+      try {
+        const q = query(ref, ...constraints, firestoreLimit(max * 3));
+        const snap = await withTimeout(getDocs(q));
+        const items = sortItems(snap.docs.map(docToItem), sortBy);
+        return items.slice(0, max);
+      } catch (err) {
+        console.warn(`Where fallback failed (${collectionName}):`, err?.message || err);
+      }
 
-      items.sort((a, b) => {
-        const dateA = new Date(a[sortField] || 0);
-        const dateB = new Date(b[sortField] || 0);
-        return sortDir === 'desc' ? dateB - dateA : dateA - dateB;
-      });
-
-      return items.slice(0, max);
+      // Fallback 2: full collection scan, filter/sort client-side.
+      const fullSnap = await withTimeout(getDocs(ref));
+      const filtered = fullSnap.docs.map(docToItem).filter((i) => matchesQuery(i, queryObj));
+      return sortItems(filtered, sortBy).slice(0, max);
     },
 
     get: async (id) => {
@@ -142,24 +163,28 @@ function makeGlobalEntity(collectionName) {
       }
 
       let q;
-      try {
-        const sortField = sortBy.startsWith('-') ? sortBy.slice(1) : sortBy;
-        const sortDir = sortBy.startsWith('-') ? 'desc' : 'asc';
-        q = query(ref, ...constraints, orderBy(sortField, sortDir), firestoreLimit(max));
-      } catch {
-        q = query(ref, ...constraints, firestoreLimit(max));
-      }
-
-      const snap = await withTimeout(getDocs(q));
-      let items = snap.docs.map(docToItem);
       const sortField = sortBy.startsWith('-') ? sortBy.slice(1) : sortBy;
       const sortDir = sortBy.startsWith('-') ? 'desc' : 'asc';
-      items.sort((a, b) => {
-        const dateA = new Date(a[sortField] || 0);
-        const dateB = new Date(b[sortField] || 0);
-        return sortDir === 'desc' ? dateB - dateA : dateA - dateB;
-      });
-      return items.slice(0, max);
+      try {
+        q = query(ref, ...constraints, orderBy(sortField, sortDir), firestoreLimit(max));
+        const snap = await withTimeout(getDocs(q));
+        return snap.docs.map(docToItem);
+      } catch (err) {
+        console.warn(`Global index fallback (${collectionName}):`, err?.message || err);
+      }
+
+      try {
+        q = query(ref, ...constraints, firestoreLimit(max * 3));
+        const snap = await withTimeout(getDocs(q));
+        const items = sortItems(snap.docs.map(docToItem), sortBy);
+        return items.slice(0, max);
+      } catch (err) {
+        console.warn(`Global where fallback failed (${collectionName}):`, err?.message || err);
+      }
+
+      const fullSnap = await withTimeout(getDocs(ref));
+      const filtered = fullSnap.docs.map(docToItem).filter((i) => matchesQuery(i, queryObj));
+      return sortItems(filtered, sortBy).slice(0, max);
     },
 
     get: async (id) => {
