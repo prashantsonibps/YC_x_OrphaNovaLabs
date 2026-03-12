@@ -20,8 +20,8 @@ export const Core = {
       let message = rawMessage || 'InvokeLLM failed';
       if (combined.includes('not-found') || combined.includes('404')) {
         message = 'LLM backend not found. Deploy Firebase function "invokeLLM" to project orphanovalabs.';
-      } else if (combined.includes('failed-precondition') || combined.includes('anthropic_api_key')) {
-        message = 'LLM backend missing ANTHROPIC_API_KEY secret. Set the secret and redeploy functions.';
+      } else if (combined.includes('failed-precondition') || combined.includes('gemini_api_key')) {
+        message = 'LLM backend missing GEMINI_API_KEY. Set it in functions/.env and redeploy.';
       } else if (combined.includes('internal')) {
         message = 'LLM backend internal error. Check Firebase Functions logs for invokeLLM.';
       }
@@ -94,6 +94,58 @@ export const Core = {
       const code = error?.code || '';
       console.error('Core.RunExperiment() error:', { code, rawMessage });
       throw new Error(rawMessage || 'RunExperiment failed');
+    }
+  },
+  GetAdminProjects: async () => {
+    try {
+      const callable = httpsCallable(functions, 'getAdminProjects', { timeout: 120000 });
+      const { data } = await callable({});
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from server.');
+      }
+      return {
+        users: Array.isArray(data.users) ? data.users : [],
+        projects: Array.isArray(data.projects) ? data.projects : [],
+      };
+    } catch (error) {
+      const rawMessage = error?.message || '';
+      const code = error?.code || '';
+      const combined = `${code} ${rawMessage}`.toLowerCase();
+      let message = rawMessage || 'Failed to load admin data.';
+      if (combined.includes('permission-denied') || combined.includes('admin only')) {
+        message = 'Admin only. You do not have permission to view all projects.';
+      } else if (combined.includes('unauthenticated')) {
+        message = 'Please sign in to view admin data.';
+      } else if (combined.includes('internal') || combined.includes('timeout')) {
+        message = 'Server error or timeout. Try again in a moment.';
+      }
+      console.error('Core.GetAdminProjects() error:', { code, rawMessage });
+      throw new Error(message);
+    }
+  },
+  AdminUpdateProject: async (params) => {
+    try {
+      const { uid, projectId, data } = params || {};
+      if (!uid || !projectId || !data) {
+        throw new Error('uid, projectId, and data are required.');
+      }
+      const callable = httpsCallable(functions, 'adminUpdateProject');
+      const res = await callable({ uid, projectId, data });
+      return res?.data ?? { ok: true };
+    } catch (error) {
+      const rawMessage = error?.message || '';
+      const code = error?.code || '';
+      const combined = `${code} ${rawMessage}`.toLowerCase();
+      let message = rawMessage || 'Failed to update project.';
+      if (combined.includes('permission-denied') || combined.includes('admin only')) {
+        message = 'Admin only. You cannot update this project.';
+      } else if (combined.includes('not-found')) {
+        message = 'Project not found. It may have been deleted.';
+      } else if (combined.includes('unauthenticated')) {
+        message = 'Please sign in to perform this action.';
+      }
+      console.error('Core.AdminUpdateProject() error:', { code, rawMessage });
+      throw new Error(message);
     }
   },
 };

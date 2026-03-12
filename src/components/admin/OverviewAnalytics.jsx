@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { User, Project } from '@/api/entities';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Core } from '@/api/integrations';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FolderKanban, CheckCircle2, TrendingUp, Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Users, FolderKanban, CheckCircle2, Activity, AlertCircle, RefreshCw } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
 export default function OverviewAnalytics() {
@@ -12,39 +13,41 @@ export default function OverviewAnalytics() {
     totalProjects: 0,
     completedProjects: 0,
     avgCompletionTime: '0 days',
-    topDiseases: []
+    topDiseases: [],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadAnalytics();
-  }, []);
-
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
+    setError(null);
+    setLoading(true);
     try {
-      const [users, projects] = await Promise.all([
-        User.list(),
-        Project.list()
-      ]);
+      const { users, projects } = await Core.GetAdminProjects();
+      const userList = Array.isArray(users) ? users : [];
+      const projectList = Array.isArray(projects) ? projects : [];
 
-      // Calculate stats
       const now = Date.now();
       const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-      const activeUsers = users.filter(u => new Date(u.updated_date).getTime() > weekAgo).length;
-      
-      const completed = projects.filter(p => p.status === 'completed');
-      const completionTimes = completed.map(p => {
-        const created = new Date(p.created_date).getTime();
-        const updated = new Date(p.updated_date).getTime();
-        return (updated - created) / (1000 * 60 * 60 * 24);
-      });
-      const avgDays = completionTimes.length > 0 
-        ? Math.round(completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length)
-        : 0;
+      const activeUsers = userList.filter((u) => {
+        const t = u?.updated_date ? new Date(u.updated_date).getTime() : 0;
+        return t > weekAgo;
+      }).length;
 
-      // Top diseases
+      const completed = projectList.filter((p) => p.status === 'completed');
+      const completionTimes = completed
+        .map((p) => {
+          const created = p.created_date ? new Date(p.created_date).getTime() : 0;
+          const updated = p.updated_date ? new Date(p.updated_date).getTime() : 0;
+          return (updated - created) / (1000 * 60 * 60 * 24);
+        })
+        .filter((d) => Number.isFinite(d) && d >= 0);
+      const avgDays =
+        completionTimes.length > 0
+          ? Math.round(completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length)
+          : 0;
+
       const diseaseCounts = {};
-      projects.forEach(p => {
+      projectList.forEach((p) => {
         if (p.disease_name) {
           diseaseCounts[p.disease_name] = (diseaseCounts[p.disease_name] || 0) + 1;
         }
@@ -55,26 +58,58 @@ export default function OverviewAnalytics() {
         .map(([name, count]) => ({ name, count }));
 
       setStats({
-        totalUsers: users.length,
+        totalUsers: userList.length,
         activeUsers,
-        totalProjects: projects.length,
+        totalProjects: projectList.length,
         completedProjects: completed.length,
         avgCompletionTime: `${avgDays} days`,
-        topDiseases
+        topDiseases,
       });
-    } catch (error) {
-      console.error('Error loading analytics:', error);
+    } catch (err) {
+      console.error('OverviewAnalytics load error:', err);
+      setError(err?.message || 'Failed to load analytics. Try again.');
+      setStats({
+        totalUsers: 0,
+        activeUsers: 0,
+        totalProjects: 0,
+        completedProjects: 0,
+        avgCompletionTime: '0 days',
+        topDiseases: [],
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  if (loading) {
-    return <div className={theme === 'dark' ? 'text-white' : 'text-slate-900'}>Loading analytics...</div>;
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
+
+  if (loading && stats.totalUsers === 0 && stats.totalProjects === 0) {
+    return (
+      <div className={`flex items-center justify-center py-12 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+        Loading analytics...
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
+      {error && (
+        <Card className={theme === 'dark' ? 'bg-red-900/20 border-red-500/30' : 'bg-red-50 border-red-200'}>
+          <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              <p className={`text-sm ${theme === 'dark' ? 'text-red-300' : 'text-red-700'}`}>{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadAnalytics} className="border-red-500/50 text-red-600 hover:bg-red-500/10">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className={theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200'}>
